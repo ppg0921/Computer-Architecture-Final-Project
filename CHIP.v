@@ -73,6 +73,10 @@ module CHIP #(                                                                  
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
     
     // Todo: any combinational/sequential circuit
+    
+    always @(*) begin
+        next_PC = (Branch === 1)? PC+ImmGen : PC+4;
+    end
 
     always @(posedge i_clk or negedge i_rst_n) begin
         if (!i_rst_n) begin
