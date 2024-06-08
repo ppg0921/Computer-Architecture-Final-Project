@@ -39,6 +39,11 @@ module CHIP #(                                                                  
         wire mem_cen, mem_wen;
         wire [BIT_W-1:0] mem_addr, mem_wdata, mem_rdata;
         wire mem_stall;
+        // Control Signals
+        reg Branch, MemRead, MemtoReg, MemWrite, ALUSrc, RegWrite;
+        reg [1:0] ALUOp;
+
+        reg [63:0] ImmGen;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Continuous Assignment
