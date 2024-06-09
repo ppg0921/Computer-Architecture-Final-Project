@@ -75,7 +75,23 @@ module CHIP #(                                                                  
     // Todo: any combinational/sequential circuit
     
     always @(*) begin
-        next_PC = (Branch === 1)? PC+ImmGen : PC+4;
+        next_PC = (Branch === 1)? PC+(ImmGen<<1) : PC+4;
+    end
+
+    // Control Signals
+    always @(*) begin
+        Branch = (i_IMEM_data[6] === 1)? 1:0;
+        MemRead = (i_IMEM_data[6:4] === 3'b0)? 1:0;
+        MemtoReg = (i_IMEM_data[6:4] === 3'b0)? 1:0;
+        MemWrite = (i_IMEM_data[6:4] === 3'b010)? 1:0;
+        ALUSrc = (i_IMEM_data[6:5] === 2'b00 || i_IMEM_data[6:4] === 3'b010)? 1:0;
+        RegWrite = (i_IMEM_data[5] === 0 || (i_IMEM_data[2] === 1 && (i_IMEM_data[4] & i_IMEM_data[3] === 0)) || ((i_IMEM_data[6] & i_IMEM_data[2] === 0) && (i_IMEM_data[4] | i_IMEM_data[3] === 1)))? 1:0;
+        if(i_IMEM_data[6] === 0 && i_IMEM_data[4:2] === 3'b0)  
+            ALUOp = 2'b00;
+        else if(i_IMEM_data[6:2] === 5'b11000)
+            ALUOp = 2'b01;
+        else
+            ALUOp = 2'b10;
     end
 
     always @(posedge i_clk or negedge i_rst_n) begin
