@@ -344,6 +344,7 @@ module Cache#(
                 if(!i_mem_stall) begin
                     cache_tag[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = i_proc_addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE];
                     cache_data[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = i_mem_rdata;
+                    cache_valid[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = 1;
                 end
             end
             default: o_proc_data_nxt = 32'b0;
@@ -356,6 +357,7 @@ module Cache#(
             cache_data[i] <= 0;
             cache_tag[i] <= 0;
             cache_dirty[i] <= 0;
+            cache_valid[i] <= 0;
         end
         state <= S_IDLE;
         o_proc_data_reg <= 32'b0;
