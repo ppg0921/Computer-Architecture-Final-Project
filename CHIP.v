@@ -193,6 +193,100 @@ module Cache#(
     assign o_proc_stall = i_mem_stall;          //
     //------------------------------------------//
 
+// ------------------------------------------------------------------------------------------------------------------------------------------------------
+// Parameters
+// ------------------------------------------------------------------------------------------------------------------------------------------------------
+    parameter S_IDLE           = 3'd0;
+    parameter S_WRITE          = 3'd1;
+    parameter S_WB             = 3'd2;
+    parameter S_ALLO           = 3'd3;
+    parameter S_READ           = 3'd4;
+    parameter S_FINISH         = 3'd5;
+    parameter CACHE_DATA_SIZE  = 128;
+    parameter BLOCK_NUMBER     = 16;
+    parameter TAG_SIZE         = 24;
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------------
+// Wires and Registers
+// ------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    // registers
+    reg [2:0] state, state_nxt;
+    reg dirty, hit;
+    reg [CACHE_DATA_SIZE-1:0] cache_data[BLOCK_NUMBER-1:0];
+    reg [TAG_SIZE-1:0] cache_tag[BLOCK_NUMBER-1:0];
+    reg cache_valid[BLOCK_NUMBER-1:0];
+    reg cache_dirty[BLOCK_NUMBER-1:0];
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------------
+// Continuous Assignment
+// ------------------------------------------------------------------------------------------------------------------------------------------------------
+
+    assign o_proc_stall = i_mem_stall | (state == S_IDLE && i_proc_cen == 1) | (state != S_IDLE && state != S_FINISH);
+    assign o_cache_finish = (state == S_FINISH);
+
+
     // Todo: BONUS
+
+    // FSM
+    always @(*) begin
+        case(state)
+            S_IDLE: begin
+                if(i_proc_cen) begin
+                    if(i_proc_wen)
+                        state_nxt = S_WRITE;
+                    else    // i_proc_wen = 0
+                        state_nxt = S_READ;
+                end
+                else
+                    state = state_nxt;
+            end
+            S_WRITE: begin
+                if(hit)
+                    state_nxt = S_FINISH;
+                else begin// hit = 0
+                    if(!i_mem_stall) begin
+                        if(dirty)
+                            state_nxt = S_WB;
+                        else    // dirty = 0
+                            state_nxt = S_ALLO;
+                    end
+                    else
+                        state = state_nxt;
+                end
+            end
+            S_WB: begin
+                if(!i_mem_stall)
+                    state_nxt = S_ALLO;
+                else
+                    state = state_nxt;
+            end
+            S_ALLO: begin
+                if(!i_mem_stall) begin
+                    if(i_proc_wen)
+                        state_nxt = S_WRITE;
+                    else
+                        state_nxt = S_READ;
+                end
+                else
+                    state = state_nxt;
+            end
+            S_READ: begin
+                if(hit)
+                    state_nxt = S_FINISH;
+                else if(!i_mem_stall) begin
+                    if(dirty)
+                        state_nxt = S_WB;
+                    else    // dirty = 0
+                        state_nxt = S_ALLO;
+                end
+                else
+                    state = state_nxt;
+            end
+            S_FINISH:
+                state_nxt = S_IDLE;
+            default : state_nxt = state;
+        endcase
+    end
 
 endmodule
