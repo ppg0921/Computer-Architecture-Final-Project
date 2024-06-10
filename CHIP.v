@@ -222,8 +222,13 @@ module Cache#(
     reg [BIT_W-1:0] o_proc_data_reg, o_proc_data_nxt;
     reg [ADDR_SIZE-1:0]    addr;
 
+    reg [CACHE_DATA_SIZE-1:0] cache_data_nxt;
+    reg [TAG_SIZE-1:0] cache_tag_nxt;
+    reg cache_valid_nxt, cache_dirty_nxt;
+
     // wires
-    wire [INDEX_SIZE-1:0] addr_index;
+    wire [INDEX_SIZE-1:0] addr_idx;
+    wire [1:0] addr_blk_ofs;
 
     
 
@@ -240,7 +245,8 @@ module Cache#(
     // assign o_mem_addr = (i_proc_cen)? {cache_tag[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]], i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE], 4'b0} : 32'b0;
     // assign o_mem_wdata = (i_proc_cen)? {cache_data[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]]} : 128'b0;
     
-
+    assign addr_idx = addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
+    assign addr_blk_ofs = addr[3:2];
 
     // Todo: BONUS
 
@@ -255,7 +261,7 @@ module Cache#(
                         state_nxt = S_READ;
                 end
                 else
-                    state = state_nxt;
+                    state_nxt = state;
             end
             S_WRITE: begin
                 if(hit)
@@ -269,14 +275,14 @@ module Cache#(
                             state_nxt = S_ALLO;
                     end
                     else
-                        state = state_nxt;
+                        state_nxt = state;
                 end
             end
             S_WB: begin
                 if(!i_mem_stall)
                     state_nxt = S_ALLO;
                 else
-                    state = state_nxt;
+                    state_nxt = state;
             end
             S_ALLO: begin
                 if(!i_mem_stall) begin
@@ -286,7 +292,7 @@ module Cache#(
                         state_nxt = S_READ;
                 end
                 else
-                    state = state_nxt;
+                    state_nxt = state;
             end
             S_READ: begin
                 if(hit)
@@ -299,7 +305,7 @@ module Cache#(
                         state_nxt = S_ALLO;
                 end
                 else
-                    state = state_nxt;
+                    state_nxt = state;
             end
             S_FINISH: state_nxt = S_IDLE;
             default : state_nxt = state;
@@ -316,15 +322,15 @@ module Cache#(
     end
 
     always @(*) begin
-        if (cache_valid[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] == 1) begin
-            if (cache_tag[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] == addr[ADDR_SIZE-1: ADDR_SIZE-TAG_SIZE])
+        if (cache_valid[addr_idx] == 1) begin
+            if (cache_tag[addr_idx] == addr[ADDR_SIZE-1: ADDR_SIZE-TAG_SIZE])
                 hit = 1;
             else
                 hit = 0;
         end
         else
             hit = 0;
-        dirty = (!hit) & cache_dirty[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]];
+        dirty = (!hit) & cache_dirty[addr_idx];
     end
 
     // operation in each state
@@ -332,22 +338,22 @@ module Cache#(
         case(state)
             S_READ: begin
                 if (hit) begin
-                    o_proc_data_nxt = cache_data[(addr[3:2]+1)*BIT_W-1: addr[3:2]*BIT_W];
+                    o_proc_data_nxt = cache_data[addr_idx][(addr_blk_ofs+1)*BIT_W-1 -: BIT_W];
                 end
                 else
                     o_proc_data_nxt = 32'b0;
             end
             S_WRITE: begin
                 if (hit) begin
-                    cache_data[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = i_proc_wdata;
-                    cache_dirty[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = 1;
+                    cache_data[addr_idx][(addr_blk_ofs+1)*BIT_W-1 -: BIT_W] = i_proc_wdata;
+                    cache_dirty[addr_idx] = 1;
                 end
             end
             S_ALLO: begin
                 if(!i_mem_stall) begin
-                    cache_tag[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE];
-                    cache_data[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = i_mem_rdata;
-                    cache_valid[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = 1;
+                    cache_tag[addr_idx] = addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE];
+                    cache_data[addr_idx] = i_mem_rdata;
+                    cache_valid[addr_idx] = 1;
                 end
             end
             default: o_proc_data_nxt = 32'b0;
