@@ -220,9 +220,12 @@ module Cache#(
     reg cache_valid[BLOCK_NUMBER-1:0];
     reg cache_dirty[BLOCK_NUMBER-1:0];
     reg [BIT_W-1:0] o_proc_data_reg, o_proc_data_nxt;
+    reg [ADDR_SIZE-1:0]    addr;
 
     // wires
     wire [INDEX_SIZE-1:0] addr_index;
+
+    
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Continuous Assignment
@@ -313,15 +316,15 @@ module Cache#(
     end
 
     always @(*) begin
-        if (cache_valid[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] == 1) begin
-            if (cache_tag[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] == i_proc_addr[ADDR_SIZE-1: ADDR_SIZE-TAG_SIZE])
+        if (cache_valid[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] == 1) begin
+            if (cache_tag[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] == addr[ADDR_SIZE-1: ADDR_SIZE-TAG_SIZE])
                 hit = 1;
             else
                 hit = 0;
         end
         else
             hit = 0;
-        dirty = (!hit) & cache_dirty[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]];
+        dirty = (!hit) & cache_dirty[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]];
     end
 
     // operation in each state
@@ -329,22 +332,22 @@ module Cache#(
         case(state)
             S_READ: begin
                 if (hit) begin
-                    o_proc_data_nxt = cache_data[(i_proc_addr[3:2]+1)*BIT_W-1: i_proc_addr[3:2]*BIT_W];
+                    o_proc_data_nxt = cache_data[(addr[3:2]+1)*BIT_W-1: addr[3:2]*BIT_W];
                 end
                 else
                     o_proc_data_nxt = 32'b0;
             end
             S_WRITE: begin
                 if (hit) begin
-                    cache_data[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = i_proc_wdata;
-                    cache_dirty[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = 1;
+                    cache_data[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = i_proc_wdata;
+                    cache_dirty[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = 1;
                 end
             end
             S_ALLO: begin
                 if(!i_mem_stall) begin
-                    cache_tag[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = i_proc_addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE];
-                    cache_data[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = i_mem_rdata;
-                    cache_valid[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = 1;
+                    cache_tag[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE];
+                    cache_data[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = i_mem_rdata;
+                    cache_valid[addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]] = 1;
                 end
             end
             default: o_proc_data_nxt = 32'b0;
@@ -352,23 +355,29 @@ module Cache#(
     end
 
     // Sequential
-    if (!i_rst_n) begin
-        for (i=0; i<BLOCK_NUMBER; i=i+1) begin
-            cache_data[i] <= 0;
-            cache_tag[i] <= 0;
-            cache_dirty[i] <= 0;
-            cache_valid[i] <= 0;
+    integer i;
+    always @(posedge i_clk or negedge i_rst_n) begin
+        if (!i_rst_n) begin
+            for (i=0; i<BLOCK_NUMBER; i=i+1) begin
+                cache_data[i] <= 0;
+                cache_tag[i] <= 0;
+                cache_dirty[i] <= 0;
+                cache_valid[i] <= 0;
+            end
+            state <= S_IDLE;
+            o_proc_data_reg <= 32'b0;
+            hit <= 0;
+            dirty <= 0;
+            o_cwen_cnt <= 0;
+            addr <= 0;
         end
-        state <= S_IDLE;
-        o_proc_data_reg <= 32'b0;
-        hit <= 0;
-        dirty <= 0;
-        o_cwen_cnt <= 0;
-    end
-    else begin
-        state <= state_nxt;
-        o_proc_data_reg <= o_proc_data_nxt;
-        o_cwen_cnt <= o_cwen_cnt_nxt;
+        else begin
+            state <= state_nxt;
+            o_proc_data_reg <= o_proc_data_nxt;
+            o_cwen_cnt <= o_cwen_cnt_nxt;
+            if(state == S_IDLE)
+                addr <= i_proc_addr;
+        end
     end
 
 endmodule
