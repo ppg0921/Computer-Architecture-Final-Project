@@ -346,7 +346,7 @@ module Cache#(
         case(state)
             S_READ: begin
                 if (hit) begin
-                    o_proc_data_nxt = cache_data_nxt[(addr_blk_ofs+1)*BIT_W-1 -: BIT_W];
+                    o_proc_data_nxt = cache_data[addr_idx][(addr_blk_ofs+1)*BIT_W-1 -: BIT_W];
                 end
                 else
                     o_proc_data_nxt = 32'b0;
