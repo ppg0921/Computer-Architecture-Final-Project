@@ -70,16 +70,19 @@ module CHIP #(                                                                  
         reg [3:0] ALUctrl;
 
         // Other signals
-        reg [BIT_W-1:0] reg_rdata1, reg_rdata2;
+        wire [BIT_W-1:0] reg_rdata1, reg_rdata2;
         
         reg ALU_zero;
-        reg [BIT_W-1:0]ALU_result_one, ALU_result_multi;
+        wire [BIT_W-1:0]ALU_result_one;
+        wire [BIT_W-1:0] ALU_result_multi;
         reg mul_valid, mul_valid_nxt;
-        reg mul_done;
+        wire mul_done;
 
         wire [BIT_W-1: 0]i_A, i_B;
         reg  [BIT_W-1: 0]shreg_tmp;
         reg  [2*BIT_W-1: 0] ALU_shreg;
+        reg [BIT_W-1:0] reg_wdata;
+        reg [BIT_W-1:0] instruction;
         // load input
         // reg cache_finish, cache_finish_nxt;
         // reg [BIT_W-1:0] IMEM_data, IMEM_data_nxt;
@@ -94,8 +97,15 @@ module CHIP #(                                                                  
     // TODO: any wire assignment
     assign o_DMEM_wdata = reg_rdata2;
     assign o_DMEM_addr = (ALUctrl == INST_MUL) ? ALU_result_multi : ALU_result_one;
-    assign i_B = ALUSrc ? ImmGen : reg_rdata2;
-    assign i_A = reg_rdata1;
+    assign i_B = (ALUSrc) ? ImmGen[BIT_W-1:0] : reg_rdata2;
+    assign i_A = (i_IMEM_data[6:0] === 7'b0010111) ? PC : reg_rdata1;
+    assign o_finish = (state == S_FINISH);
+    assign o_IMEM_addr = PC;
+    assign o_IMEM_cen = (state != S_FINISH);
+    assign o_DMEM_cen = (MemWrite | MemRead);
+    assign o_DMEM_wen = MemWrite;
+    assign ALU_result_one = ALU_shreg;
+    
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Submoddules
@@ -109,7 +119,7 @@ module CHIP #(                                                                  
         .rs1    (i_IMEM_data[19:15]),                
         .rs2    (i_IMEM_data[24:20]),                
         .rd     (i_IMEM_data[11:7]),                 
-        .wdata  ((i_IMEM_data[6:0] == 7'b1101111 || i_IMEM_data[6:0] == 7'b1100111)? (PC + 4) :(MemtoReg ? i_DMEM_rdata : ALU_result)),             
+        .wdata  (reg_wdata),             
         .rdata1 (reg_rdata1),           
         .rdata2 (reg_rdata2)
     );
@@ -119,7 +129,7 @@ module CHIP #(                                                                  
         .i_rst_n(i_rst_n), 
         .i_valid(mul_valid_nxt),
         .i_A    (reg_rdata1),
-        .i_B    (ALUSrc ? ImmGen : reg_rdata2), 
+        .i_B    ((ALUSrc) ? ImmGen[31:0] : reg_rdata2), 
         .o_data (ALU_result_multi), 
         .o_done (mul_done)
     );
@@ -131,21 +141,45 @@ module CHIP #(                                                                  
     
     // Todo: any combinational/sequential circuit
     always @(*) begin
-        if(i_IMEM_data[6:0] === 7'b1100111)
+        if(i_DMEM_stall)
+            next_PC = PC;
+        else if(i_IMEM_data[6:0] === 7'b1100111)
             next_PC = ALU_result_one;
         else
             next_PC = (Branch === 1)? PC+(ImmGen<<1) : PC+4;
+        $display("PC: %h.", PC);
+        $display("Instruction: %h.", i_IMEM_data);
+    end
+
+    // reg_wdata
+    always @(*) begin
+        if(i_IMEM_data[6:0] == 7'b1101111 || i_IMEM_data[6:0] == 7'b1100111) begin
+            reg_wdata = PC+4;
+            // $display("reg_wdata = PC+4");
+            // $display("PC = %h", PC);
+        end
+            
+        else begin
+            if(MemtoReg)    reg_wdata = i_DMEM_rdata;
+            else begin
+                if(ALUctrl == INST_MUL)
+                    reg_wdata = ALU_result_multi;
+                else
+                    reg_wdata = ALU_result_one;
+            end
+        end
     end
 
     // FSM
     always @(*) begin
         case(state)
-        S_IFID:           state_nxt = ( i_IMEM_data[6:0] == 7'b1110011 ) ? S_FINISH : ( (i_IMEM_data[6:0] == 7'b1110011 && i_IMEM_data[25] == 1'b0) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP);
-        S_MULTI_CYCLE_OP: state_nxt = mul_done ? S_IFID : state_nxt;
-        S_ONE_CYCLE_OP:   state_nxt = i_DMEM_stall   ? S_IFID : state_nxt;
-        S_FINISH: state_nxt = state;
-        default : state_nxt = state;
+            S_IFID:           state_nxt = ( i_IMEM_data[6:0] == 7'b1110011 ) ? S_FINISH : ( (i_IMEM_data[6:0] == 7'b1110011 && i_IMEM_data[25] == 1'b0) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP);
+            S_MULTI_CYCLE_OP: state_nxt = mul_done ? S_IFID : state;
+            S_ONE_CYCLE_OP:   state_nxt = i_DMEM_stall ? state : S_IFID;
+            S_FINISH: state_nxt = state;
+            default : state_nxt = state;
         endcase
+        if(i_DMEM_stall)    state_nxt = state;
     end
     
 
@@ -168,14 +202,15 @@ module CHIP #(                                                                  
         MemRead = (i_IMEM_data[6:4] === 3'b0)? 1:0;
         MemtoReg = (i_IMEM_data[6:4] === 3'b0)? 1:0;
         MemWrite = (i_IMEM_data[6:4] === 3'b010)? 1:0;
-        ALUSrc = (i_IMEM_data[6:5] === 2'b00 || i_IMEM_data[6:4] === 3'b010)? 1:0;
-        RegWrite = (i_IMEM_data[5] === 0 || (i_IMEM_data[2] === 1 && (i_IMEM_data[4] & i_IMEM_data[3] === 0)) || ((i_IMEM_data[6] & i_IMEM_data[2] === 0) && (i_IMEM_data[4] | i_IMEM_data[3] === 1)))? 1:0;
+        ALUSrc = (i_IMEM_data[6:5] === 2'b00 || i_IMEM_data[6:4] === 3'b010 || i_IMEM_data[6:0] === 7'b1100111)? 1:0;
+        RegWrite = (i_IMEM_data[6:0] === 7'b1101111 || i_IMEM_data[6:0] === 7'b1100111 || i_IMEM_data[6:0] === 7'b0010111 || i_IMEM_data[6:0] === 7'b0110011 || i_IMEM_data[6:0] === 7'b0010011 || i_IMEM_data[6:0] === 7'b0000011 || i_IMEM_data[6:0] === 7'b0100011 )? 1:0;
         if(i_IMEM_data[6] === 0 && i_IMEM_data[4:2] === 3'b0)  
             ALUOp = 2'b00;
         else if(i_IMEM_data[6:2] === 5'b11000)
             ALUOp = 2'b01;
         else
             ALUOp = 2'b10;
+        $display("ALUOp: %b.", ALUOp);
     end
 
     // ALU control
@@ -210,6 +245,7 @@ module CHIP #(                                                                  
             endcase
             default: ALUctrl = INST_ADD;
         endcase
+        $display("ALUCtrl: %h.", ALUctrl);
     end
 
 
@@ -217,6 +253,7 @@ module CHIP #(                                                                  
     always @(*) begin
         ALU_zero = 1'b0;
         mul_valid_nxt = 1'b0;
+        ALU_shreg = 64'b0;
         case(ALUctrl)
             INST_ADD: begin
                 shreg_tmp = i_A + i_B;
@@ -280,6 +317,17 @@ module CHIP #(                                                                  
                 mul_valid_nxt = 1'b0;
             end
         endcase
+        
+        // $display("i_IMEM_data[6:0] = %b", i_IMEM_data[6:0]);
+        // $display("MemRead = %b", MemRead);
+        // $display("PC = %b", PC);
+        // $display("reg_rdata1 = %b", reg_rdata1);
+        // $display("i_A = %b", i_A);
+        // $display("i_B = %b", i_B);
+        // $display("ImmGen = %b", ImmGen);
+        // $display("ALU_result_one = %b", ALU_result_one);
+        // $display("RegWrite = %b\n", RegWrite);
+        // $display("ALUSrc = %b\n", ALUSrc);
     end
 
     // Imm Gen
@@ -289,10 +337,12 @@ module CHIP #(                                                                  
         if (!i_rst_n) begin
             PC <= 32'h00010000; // Do not modify this value!!!
             mul_valid <= 1'b0;
+            state <= S_IFID;
         end
         else begin
             PC <= next_PC;
             mul_valid <= mul_valid_nxt;
+            state <= state_nxt;
         end
     end
 endmodule
@@ -319,6 +369,10 @@ module Reg_file(i_clk, i_rst_n, wen, rs1, rs2, rd, wdata, rdata1, rdata2);
     assign rdata2 = mem[rs2];
 
     always @(*) begin
+        $display("wdata = %b", wdata);
+        $display("rd = %b", rd);
+        $display("wen = %b", wen);
+        // $display("PCnow = %h", PC);
         for (i=0; i<word_depth; i=i+1)
             mem_nxt[i] = (wen && (rd == i)) ? wdata : mem[i];
     end
@@ -338,6 +392,11 @@ module Reg_file(i_clk, i_rst_n, wen, rs1, rs2, rd, wdata, rdata1, rdata2);
             mem[0] <= 0;
             for (i=1; i<word_depth; i=i+1)
                 mem[i] <= mem_nxt[i];
+            // $display("PC = %h", PC);
+            // $display("instruction = %h", i_IMEM_data);
+            for (i=1; i<15; i=i+1)
+                $display("mem[%d] = %h", i, mem[i]);
+            $display("\n");
         end       
     end
 endmodule
@@ -358,7 +417,7 @@ module MULDIV_unit(i_clk, i_valid, i_rst_n, i_A, i_B, o_data, o_done);
     input  [DATA_W - 1 : 0]      i_A;     // input operand A
     input  [DATA_W - 1 : 0]      i_B;     // input operand B
 
-    output [2*DATA_W - 1 : 0]   o_data;  // output value
+    output [DATA_W - 1 : 0]   o_data;  // output value
     output                      o_done;
 
     // Regs
@@ -370,6 +429,9 @@ module MULDIV_unit(i_clk, i_valid, i_rst_n, i_A, i_B, o_data, o_done);
     reg  [   DATA_W-1: 0] operand_b, operand_b_nxt;
     reg done;
 
+
+    assign o_data = shreg[DATA_W-1:0];
+    assign o_done = done;
     // Always Combination
 
     // load input
