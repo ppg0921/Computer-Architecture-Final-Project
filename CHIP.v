@@ -78,6 +78,19 @@ module CHIP #(                                                                  
         next_PC = (Branch === 1)? PC+(ImmGen<<1) : PC+4;
     end
 
+    // ImmGen
+    always @(*) begin
+        case(i_IMEM_data[6:0])
+            7'b0110011: ImmGen = 64'b0;     // R type
+            7'b0010011, 7'b1100111, 7'b0000011, 7'b1110011: ImmGen = {{52{i_IMEM_data[31]}}, i_IMEM_data[31:20]};      // I type
+            7'b0100011: ImmGen = {{52{i_IMEM_data[31]}}, i_IMEM_data[31:25], i_IMEM_data[11:7]};       // S type
+            7'b1100011: ImmGen = {{52{i_IMEM_data[31]}}, i_IMEM_data[31], i_IMEM_data[7], i_IMEM_data[30:25], i_IMEM_data[11:8]};      // B type
+            7'b0010111: ImmGen = {{32{i_IMEM_data[31]}}, i_IMEM_data[31:12], {12'b0}};     // U type
+            7'b1101111: ImmGen = {{44{i_IMEM_data[31]}}, i_IMEM_data[31], i_IMEM_data[19:12], i_IMEM_data[20], i_IMEM_data[30:21]};    // J type
+            default: ImmGen = 64'b0;
+        endcase
+    end
+
     // Control Signals
     always @(*) begin
         Branch = (i_IMEM_data[6] === 1)? 1:0;
