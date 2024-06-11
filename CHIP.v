@@ -73,7 +73,7 @@ module CHIP #(                                                                  
         wire [BIT_W-1:0] reg_rdata1, reg_rdata2;
         
         reg ALU_zero;
-        reg [BIT_W-1:0]ALU_result_one;
+        wire [BIT_W-1:0]ALU_result_one;
         wire [BIT_W-1:0] ALU_result_multi;
         reg mul_valid, mul_valid_nxt;
         wire mul_done;
@@ -104,6 +104,7 @@ module CHIP #(                                                                  
     assign o_IMEM_cen = (state != S_FINISH);
     assign o_DMEM_cen = (MemWrite | MemRead);
     assign o_DMEM_wen = MemWrite;
+    assign ALU_result_one = ALU_shreg;
     
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -152,8 +153,12 @@ module CHIP #(                                                                  
 
     // reg_wdata
     always @(*) begin
-        if(i_IMEM_data[6:0] == 7'b1101111 || i_IMEM_data[6:0] == 7'b1100111)
+        if(i_IMEM_data[6:0] == 7'b1101111 || i_IMEM_data[6:0] == 7'b1100111) begin
             reg_wdata = PC+4;
+            // $display("reg_wdata = PC+4");
+            // $display("PC = %h", PC);
+        end
+            
         else begin
             if(MemtoReg)    reg_wdata = i_DMEM_rdata;
             else begin
@@ -198,7 +203,7 @@ module CHIP #(                                                                  
         MemtoReg = (i_IMEM_data[6:4] === 3'b0)? 1:0;
         MemWrite = (i_IMEM_data[6:4] === 3'b010)? 1:0;
         ALUSrc = (i_IMEM_data[6:5] === 2'b00 || i_IMEM_data[6:4] === 3'b010 || i_IMEM_data[6:0] === 7'b1100111)? 1:0;
-        RegWrite = (i_IMEM_data[5] === 0 || (i_IMEM_data[2] === 1 && (i_IMEM_data[4] & i_IMEM_data[3] === 0)) || ((i_IMEM_data[6] & i_IMEM_data[2] === 0) && (i_IMEM_data[4] | i_IMEM_data[3] === 1)))? 1:0;
+        RegWrite = (i_IMEM_data[6:0] === 7'b1101111 || i_IMEM_data[6:0] === 7'b1100111 || i_IMEM_data[6:0] === 7'b0010111 || i_IMEM_data[6:0] === 7'b0110011 || i_IMEM_data[6:0] === 7'b0010011 || i_IMEM_data[6:0] === 7'b0000011 || i_IMEM_data[6:0] === 7'b0100011 )? 1:0;
         if(i_IMEM_data[6] === 0 && i_IMEM_data[4:2] === 3'b0)  
             ALUOp = 2'b00;
         else if(i_IMEM_data[6:2] === 5'b11000)
@@ -312,7 +317,7 @@ module CHIP #(                                                                  
                 mul_valid_nxt = 1'b0;
             end
         endcase
-        ALU_result_one = ALU_shreg;
+        
         // $display("i_IMEM_data[6:0] = %b", i_IMEM_data[6:0]);
         // $display("MemRead = %b", MemRead);
         // $display("PC = %b", PC);
@@ -333,13 +338,11 @@ module CHIP #(                                                                  
             PC <= 32'h00010000; // Do not modify this value!!!
             mul_valid <= 1'b0;
             state <= S_IFID;
-            instruction <= 0;
         end
         else begin
             PC <= next_PC;
             mul_valid <= mul_valid_nxt;
             state <= state_nxt;
-            instruction <= i_IMEM_data
         end
     end
 endmodule
