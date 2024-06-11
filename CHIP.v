@@ -81,6 +81,7 @@ module CHIP #(                                                                  
         wire [BIT_W-1: 0]i_A, i_B;
         reg  [BIT_W-1: 0]shreg_tmp;
         reg  [2*BIT_W-1: 0] ALU_shreg;
+        reg [BIT_W-1:0] reg_wdata;
         // load input
         // reg cache_finish, cache_finish_nxt;
         // reg [BIT_W-1:0] IMEM_data, IMEM_data_nxt;
@@ -96,12 +97,13 @@ module CHIP #(                                                                  
     assign o_DMEM_wdata = reg_rdata2;
     assign o_DMEM_addr = (ALUctrl == INST_MUL) ? ALU_result_multi : ALU_result_one;
     assign i_B = (ALUSrc) ? ImmGen[BIT_W-1:0] : reg_rdata2;
-    assign i_A = reg_rdata1;
+    assign i_A = (i_IMEM_data[6:0] === 7'b0010111) ? PC : reg_rdata1;
     assign o_finish = (state == S_FINISH);
     assign o_IMEM_addr = PC;
     assign o_IMEM_cen = (state != S_FINISH);
     assign o_DMEM_cen = MemWrite | MemRead;
     assign o_DMEM_wen = MemWrite;
+    
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Submoddules
@@ -115,7 +117,7 @@ module CHIP #(                                                                  
         .rs1    (i_IMEM_data[19:15]),                
         .rs2    (i_IMEM_data[24:20]),                
         .rd     (i_IMEM_data[11:7]),                 
-        .wdata  ((i_IMEM_data[6:0] == 7'b1101111 || i_IMEM_data[6:0] == 7'b1100111)? (PC + 4) :(MemtoReg ? i_DMEM_rdata : ALU_result)),             
+        .wdata  (reg_wdata),             
         .rdata1 (reg_rdata1),           
         .rdata2 (reg_rdata2)
     );
@@ -141,8 +143,23 @@ module CHIP #(                                                                  
             next_PC = ALU_result_one;
         else
             next_PC = (Branch === 1)? PC+(ImmGen<<1) : PC+4;
-        // $display("PC: %h.\n", PC);
-        $display("Instruction: %h.\n", i_IMEM_data);
+        $display("PC: %h.", PC);
+        $display("Instruction: %h.", i_IMEM_data);
+    end
+
+    // reg_wdata
+    always @(*) begin
+        if(i_IMEM_data[6:0] == 7'b1101111 || i_IMEM_data[6:0] == 7'b1100111)
+            reg_wdata = PC+4;
+        else begin
+            if(MemtoReg)    reg_wdata = i_DMEM_rdata;
+            else begin
+                if(ALUctrl == INST_MUL)
+                    reg_wdata = ALU_result_multi;
+                else
+                    reg_wdata = ALU_result_one;
+            end
+        end
     end
 
     // FSM
@@ -185,7 +202,7 @@ module CHIP #(                                                                  
             ALUOp = 2'b01;
         else
             ALUOp = 2'b10;
-        $display("ALUOp: %b.\n", ALUOp);
+        $display("ALUOp: %b.", ALUOp);
     end
 
     // ALU control
@@ -220,7 +237,7 @@ module CHIP #(                                                                  
             endcase
             default: ALUctrl = INST_ADD;
         endcase
-        $display("ALUCtrl: %h.\n", ALUctrl);
+        $display("ALUCtrl: %h.", ALUctrl);
     end
 
 
@@ -291,10 +308,15 @@ module CHIP #(                                                                  
                 mul_valid_nxt = 1'b0;
             end
         endcase
-        $display("reg_rdata1 = %b\n", reg_rdata1);
-        $display("i_B = %b\n", i_B);
-        $display("ImmGen = %b\n", ImmGen);
-        $display("ALU_shreg = %b\n", ALU_shreg);
+        ALU_result_one = ALU_shreg;
+        // $display("i_IMEM_data[6:0] = %b", i_IMEM_data[6:0]);
+        $display("PC = %b", PC);
+        $display("reg_rdata1 = %b", reg_rdata1);
+        $display("i_A = %b", i_A);
+        $display("i_B = %b", i_B);
+        $display("ImmGen = %b", ImmGen);
+        $display("ALU_result_one = %b", ALU_result_one);
+        $display("RegWrite = %b\n", RegWrite);
         // $display("ALUSrc = %b\n", ALUSrc);
     end
 
@@ -337,6 +359,9 @@ module Reg_file(i_clk, i_rst_n, wen, rs1, rs2, rd, wdata, rdata1, rdata2);
     assign rdata2 = mem[rs2];
 
     always @(*) begin
+        $display("wdata = %b", wdata);
+        $display("rd = %b", rd);
+        $display("PCnow = %h", PC);
         for (i=0; i<word_depth; i=i+1)
             mem_nxt[i] = (wen && (rd == i)) ? wdata : mem[i];
     end
