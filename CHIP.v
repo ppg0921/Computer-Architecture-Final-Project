@@ -95,9 +95,13 @@ module CHIP #(                                                                  
     // TODO: any wire assignment
     assign o_DMEM_wdata = reg_rdata2;
     assign o_DMEM_addr = (ALUctrl == INST_MUL) ? ALU_result_multi : ALU_result_one;
-    assign i_B = ALUSrc ? ImmGen : reg_rdata2;
+    assign i_B = (ALUSrc) ? ImmGen[BIT_W-1:0] : reg_rdata2;
     assign i_A = reg_rdata1;
     assign o_finish = (state == S_FINISH);
+    assign o_IMEM_addr = PC;
+    assign o_IMEM_cen = (state != S_FINISH);
+    assign o_DMEM_cen = MemWrite | MemRead;
+    assign o_DMEM_wen = MemWrite;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Submoddules
@@ -121,7 +125,7 @@ module CHIP #(                                                                  
         .i_rst_n(i_rst_n), 
         .i_valid(mul_valid_nxt),
         .i_A    (reg_rdata1),
-        .i_B    (ALUSrc ? ImmGen[31:0] : reg_rdata2), 
+        .i_B    ((ALUSrc) ? ImmGen[31:0] : reg_rdata2), 
         .o_data (ALU_result_multi), 
         .o_done (mul_done)
     );
@@ -137,6 +141,8 @@ module CHIP #(                                                                  
             next_PC = ALU_result_one;
         else
             next_PC = (Branch === 1)? PC+(ImmGen<<1) : PC+4;
+        // $display("PC: %h.\n", PC);
+        $display("Instruction: %h.\n", i_IMEM_data);
     end
 
     // FSM
@@ -171,7 +177,7 @@ module CHIP #(                                                                  
         MemRead = (i_IMEM_data[6:4] === 3'b0)? 1:0;
         MemtoReg = (i_IMEM_data[6:4] === 3'b0)? 1:0;
         MemWrite = (i_IMEM_data[6:4] === 3'b010)? 1:0;
-        ALUSrc = (i_IMEM_data[6:5] === 2'b00 || i_IMEM_data[6:4] === 3'b010)? 1:0;
+        ALUSrc = (i_IMEM_data[6:5] === 2'b00 || i_IMEM_data[6:4] === 3'b010 || i_IMEM_data[6:0] === 7'b1100111)? 1:0;
         RegWrite = (i_IMEM_data[5] === 0 || (i_IMEM_data[2] === 1 && (i_IMEM_data[4] & i_IMEM_data[3] === 0)) || ((i_IMEM_data[6] & i_IMEM_data[2] === 0) && (i_IMEM_data[4] | i_IMEM_data[3] === 1)))? 1:0;
         if(i_IMEM_data[6] === 0 && i_IMEM_data[4:2] === 3'b0)  
             ALUOp = 2'b00;
@@ -179,6 +185,7 @@ module CHIP #(                                                                  
             ALUOp = 2'b01;
         else
             ALUOp = 2'b10;
+        $display("ALUOp: %b.\n", ALUOp);
     end
 
     // ALU control
@@ -213,6 +220,7 @@ module CHIP #(                                                                  
             endcase
             default: ALUctrl = INST_ADD;
         endcase
+        $display("ALUCtrl: %h.\n", ALUctrl);
     end
 
 
@@ -283,6 +291,11 @@ module CHIP #(                                                                  
                 mul_valid_nxt = 1'b0;
             end
         endcase
+        $display("reg_rdata1 = %b\n", reg_rdata1);
+        $display("i_B = %b\n", i_B);
+        $display("ImmGen = %b\n", ImmGen);
+        $display("ALU_shreg = %b\n", ALU_shreg);
+        // $display("ALUSrc = %b\n", ALUSrc);
     end
 
     // Imm Gen
