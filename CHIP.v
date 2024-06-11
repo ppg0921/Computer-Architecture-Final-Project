@@ -216,6 +216,7 @@ module CHIP #(                                                                  
     // ALU
     always @(*) begin
         ALU_zero = 1'b0;
+        mul_valid_nxt = 1'b0;
         case(ALUctrl)
             INST_ADD: begin
                 shreg_tmp = i_A + i_B;
