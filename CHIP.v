@@ -77,6 +77,9 @@ module CHIP #(                                                                  
         reg mul_valid, mul_valid_nxt;
         reg mul_done;
 
+        wire [BIT_W-1: 0]i_A, i_B;
+        reg  [BIT_W-1: 0]shreg_tmp;
+        reg  [2*BIT_W-1: 0] ALU_shreg;
         // load input
         // reg cache_finish, cache_finish_nxt;
         // reg [BIT_W-1:0] IMEM_data, IMEM_data_nxt;
@@ -91,6 +94,8 @@ module CHIP #(                                                                  
     // TODO: any wire assignment
     assign o_DMEM_wdata = reg_rdata2;
     assign o_DMEM_addr = (ALUctrl == INST_MUL) ? ALU_result_multi : ALU_result_one;
+    assign i_B = ALUSrc ? ImmGen : reg_rdata2;
+    assign i_A = reg_rdata1;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Submoddules
@@ -223,14 +228,14 @@ module CHIP #(                                                                  
                 if(i_A[31] == 0 && i_B[31] == 1 && shreg_tmp[31] == 1) ALU_shreg = 64'h000000007fffffff;
                 else if(i_A[31] == 1 && i_B[31] == 0 && shreg_tmp[31] == 0) ALU_shreg = 64'h0000000080000000;
                 else ALU_shreg = {32'd0, shreg_tmp};
-                if(ALU_shreg == 64'd0) o_zero = 1'b1;
+                if(ALU_shreg == 64'd0) ALU_zero = 1'b1;
             end
             INST_SUB_N: begin
                 shreg_tmp = i_A - i_B;
                 if(i_A[31] == 0 && i_B[31] == 1 && shreg_tmp[31] == 1) ALU_shreg = 64'h000000007fffffff;
                 else if(i_A[31] == 1 && i_B[31] == 0 && shreg_tmp[31] == 0) ALU_shreg = 64'h0000000080000000;
                 else ALU_shreg = {32'd0, shreg_tmp};
-                if(ALU_shreg != 64'd0) o_zero = 1'b1;
+                if(ALU_shreg != 64'd0) ALU_zero = 1'b1;
             end
             INST_AND: ALU_shreg = {32'd0, i_A & i_B};
             INST_OR:  ALU_shreg = {32'd0, i_A | i_B};
@@ -243,7 +248,7 @@ module CHIP #(                                                                  
                     if( shreg_tmp[31] == 1 ) ALU_shreg = {63'd0, 1'd1};
                     else ALU_shreg = 64'd0;
                 end
-                o_zero = ALU_shreg[0];
+                ALU_zero = ALU_shreg[0];
             end
             INST_SLT_N: begin
                 if(i_A[31] == 0 && i_B[31] == 1) ALU_shreg = 64'd0;
@@ -253,7 +258,7 @@ module CHIP #(                                                                  
                     if( shreg_tmp[31] == 1 ) ALU_shreg = {63'd0, 1'd1};
                     else ALU_shreg = 64'd0;
                 end
-                o_zero = !ALU_shreg[0];
+                ALU_zero = !ALU_shreg[0];
             end
             INST_SLL: begin
                 shreg_tmp = i_A << i_B;
@@ -282,12 +287,10 @@ module CHIP #(                                                                  
     always @(posedge i_clk or negedge i_rst_n) begin
         if (!i_rst_n) begin
             PC <= 32'h00010000; // Do not modify this value!!!
-            cnt <= 5'd0;
             mul_valid <= 1'b0;
         end
         else begin
             PC <= next_PC;
-            cnt <= cnt_nxt;
             mul_valid <= mul_valid_nxt;
         end
     end
@@ -351,19 +354,20 @@ module MULDIV_unit(i_clk, i_valid, i_rst_n, i_A, i_B, o_data, o_done);
     input                       i_valid;
     input                       i_rst_n; // reset
 
-    input [DATA_W - 1 : 0]      i_A;     // input operand A
-    input [DATA_W - 1 : 0]      i_B;     // input operand B
+    input  [DATA_W - 1 : 0]      i_A;     // input operand A
+    input  [DATA_W - 1 : 0]      i_B;     // input operand B
 
     output [2*DATA_W - 1 : 0]   o_data;  // output value
-    output                     o_done;
+    output                      o_done;
 
     // Regs
     reg  [ 2*DATA_W-1: 0] shreg, shreg_nxt;
-    reg  [   DATA_W-1: 0] shreg_tmp;
+    
     reg [4:0] cnt, cnt_nxt;
     reg state, state_nxt;
     reg  [   DATA_W-1: 0] operand_a, operand_a_nxt;
     reg  [   DATA_W-1: 0] operand_b, operand_b_nxt;
+    reg done;
 
     // Always Combination
 
@@ -385,7 +389,7 @@ module MULDIV_unit(i_clk, i_valid, i_rst_n, i_A, i_B, o_data, o_done);
     always @(*) begin
         case(state)
             S_IDLE: state_nxt = i_valid ? S_WORK : state;
-            S_WORK: state_nxt = (cnt == 5'd31) ? S_OUT : state;
+            S_WORK: state_nxt = (cnt == 5'd31) ? S_IDLE : state;
         endcase
     end
 
