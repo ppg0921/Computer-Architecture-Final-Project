@@ -43,7 +43,7 @@ module CHIP #(                                                                  
         reg Branch, MemRead, MemtoReg, MemWrite, ALUSrc, RegWrite;
         reg [1:0] ALUOp;
 
-        reg [63:0] ImmGen;
+        reg signed [63:0] ImmGen;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Continuous Assignment
