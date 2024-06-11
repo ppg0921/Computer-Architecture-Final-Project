@@ -292,10 +292,12 @@ module CHIP #(                                                                  
         if (!i_rst_n) begin
             PC <= 32'h00010000; // Do not modify this value!!!
             mul_valid <= 1'b0;
+            state <= S_IFID;
         end
         else begin
             PC <= next_PC;
             mul_valid <= mul_valid_nxt;
+            state <= state_nxt;
         end
     end
 endmodule
