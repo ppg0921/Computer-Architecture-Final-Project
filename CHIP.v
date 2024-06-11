@@ -70,12 +70,13 @@ module CHIP #(                                                                  
         reg [3:0] ALUctrl;
 
         // Other signals
-        reg [BIT_W-1:0] reg_rdata1, reg_rdata2;
+        wire [BIT_W-1:0] reg_rdata1, reg_rdata2;
         
         reg ALU_zero;
-        reg [BIT_W-1:0]ALU_result_one, ALU_result_multi;
+        reg [BIT_W-1:0]ALU_result_one;
+        wire [BIT_W-1:0] ALU_result_multi;
         reg mul_valid, mul_valid_nxt;
-        reg mul_done;
+        wire mul_done;
 
         wire [BIT_W-1: 0]i_A, i_B;
         reg  [BIT_W-1: 0]shreg_tmp;
@@ -96,6 +97,7 @@ module CHIP #(                                                                  
     assign o_DMEM_addr = (ALUctrl == INST_MUL) ? ALU_result_multi : ALU_result_one;
     assign i_B = ALUSrc ? ImmGen : reg_rdata2;
     assign i_A = reg_rdata1;
+    assign o_finish = (state == S_FINISH);
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Submoddules
@@ -119,7 +121,7 @@ module CHIP #(                                                                  
         .i_rst_n(i_rst_n), 
         .i_valid(mul_valid_nxt),
         .i_A    (reg_rdata1),
-        .i_B    (ALUSrc ? ImmGen : reg_rdata2), 
+        .i_B    (ALUSrc ? ImmGen[31:0] : reg_rdata2), 
         .o_data (ALU_result_multi), 
         .o_done (mul_done)
     );
@@ -139,6 +141,7 @@ module CHIP #(                                                                  
 
     // FSM
     always @(*) begin
+        
         case(state)
         S_IFID:           state_nxt = ( i_IMEM_data[6:0] == 7'b1110011 ) ? S_FINISH : ( (i_IMEM_data[6:0] == 7'b1110011 && i_IMEM_data[25] == 1'b0) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP);
         S_MULTI_CYCLE_OP: state_nxt = mul_done ? S_IFID : state_nxt;
@@ -358,7 +361,7 @@ module MULDIV_unit(i_clk, i_valid, i_rst_n, i_A, i_B, o_data, o_done);
     input  [DATA_W - 1 : 0]      i_A;     // input operand A
     input  [DATA_W - 1 : 0]      i_B;     // input operand B
 
-    output [2*DATA_W - 1 : 0]   o_data;  // output value
+    output [DATA_W - 1 : 0]   o_data;  // output value
     output                      o_done;
 
     // Regs
@@ -370,6 +373,9 @@ module MULDIV_unit(i_clk, i_valid, i_rst_n, i_A, i_B, o_data, o_done);
     reg  [   DATA_W-1: 0] operand_b, operand_b_nxt;
     reg done;
 
+
+    assign o_data = shreg[DATA_W-1:0];
+    assign o_done = done;
     // Always Combination
 
     // load input
