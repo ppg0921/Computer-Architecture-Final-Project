@@ -90,7 +90,7 @@ module CHIP #(                                                                  
 
     // TODO: any wire assignment
     assign o_DMEM_wdata = reg_rdata2;
-    assign o_DMEM_addr = (ALUctrl == INST_MUL) ? ALU_result_multi : ALU_result_one 
+    assign o_DMEM_addr = (ALUctrl == INST_MUL) ? ALU_result_multi : ALU_result_one;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Submoddules
@@ -104,7 +104,7 @@ module CHIP #(                                                                  
         .rs1    (i_IMEM_data[19:15]),                
         .rs2    (i_IMEM_data[24:20]),                
         .rd     (i_IMEM_data[11:7]),                 
-        .wdata  (i_IMEM_data[6:0] == 7'b1101111 || i_IMEM_data[6:0] == 7'b1100111? PC + 4 :(MemtoReg ? i_DMEM_rdata : ALU_result)),             
+        .wdata  ((i_IMEM_data[6:0] == 7'b1101111 || i_IMEM_data[6:0] == 7'b1100111)? (PC + 4) :(MemtoReg ? i_DMEM_rdata : ALU_result)),             
         .rdata1 (reg_rdata1),           
         .rdata2 (reg_rdata2)
     );
@@ -391,7 +391,8 @@ module MULDIV_unit(i_clk, i_valid, i_rst_n, i_A, i_B, o_data, o_done);
 
     // Counter
     always @(posedge i_clk) begin
-        cnt_nxt = cnt + 5'd1;
+        if(state == S_WORK)
+            cnt_nxt = cnt + 5'd1;
         else cnt_nxt = 5'd0;
     end
 
