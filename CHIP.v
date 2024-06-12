@@ -141,7 +141,7 @@ module CHIP #(                                                                  
     
     // Todo: any combinational/sequential circuit
     always @(*) begin
-        if(i_DMEM_stall || (state == S_MULTI_CYCLE_OP && !mul_done))
+        if(i_DMEM_stall || (state_nxt == S_MULTI_CYCLE_OP && !mul_done) || (state == S_MULTI_CYCLE_OP && !mul_done))
             next_PC = PC;
         else if(i_IMEM_data[6:0] === 7'b1100111)
             next_PC = ALU_result_one;
