@@ -147,8 +147,8 @@ module CHIP #(                                                                  
             next_PC = ALU_result_one;
         else
             next_PC = (Branch === 1)? PC+(ImmGen<<1) : PC+4;
-        $display("PC: %h.", PC);
-        $display("Instruction: %h.", i_IMEM_data);
+        // $display("PC: %h.", PC);
+        // $display("Instruction: %h.", i_IMEM_data);
     end
 
     // reg_wdata
@@ -218,7 +218,7 @@ module CHIP #(                                                                  
             ALUOp = 2'b01;
         else
             ALUOp = 2'b10;
-        $display("ALUOp: %b.", ALUOp);
+        // $display("ALUOp: %b.", ALUOp);
     end
 
     // ALU control
@@ -253,7 +253,7 @@ module CHIP #(                                                                  
             endcase
             default: ALUctrl = INST_ADD;
         endcase
-        $display("ALUCtrl: %h.", ALUctrl);
+        // $display("ALUCtrl: %h.", ALUctrl);
     end
 
 
