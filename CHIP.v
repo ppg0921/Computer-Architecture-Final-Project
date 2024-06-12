@@ -30,7 +30,7 @@ module CHIP #(                                                                  
 
     // TODO: any declaration
     // FSM parameters:
-    parameter S_IFID               = 2'd0;
+    parameter S_IDLE               = 2'd0;
     parameter S_MULTI_CYCLE_OP     = 2'd1;
     parameter S_ONE_CYCLE_OP       = 2'd2;
     parameter S_FINISH             = 2'd3;
@@ -141,7 +141,7 @@ module CHIP #(                                                                  
     
     // Todo: any combinational/sequential circuit
     always @(*) begin
-        if(i_DMEM_stall)
+        if(i_DMEM_stall || (state == S_MULTI_CYCLE_OP && !mul_done))
             next_PC = PC;
         else if(i_IMEM_data[6:0] === 7'b1100111)
             next_PC = ALU_result_one;
@@ -171,15 +171,23 @@ module CHIP #(                                                                  
     end
 
     // FSM
+    // always @(*) begin
+    //     case(state)
+    //         S_IFID:           state_nxt = ( i_IMEM_data[6:0] == 7'b1110011 ) ? S_FINISH : ( (i_IMEM_data[6:0] == 7'b0110011 && i_IMEM_data[25] == 1'b1) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP);
+    //         S_MULTI_CYCLE_OP: state_nxt = mul_done ? S_IFID : state;
+    //         S_ONE_CYCLE_OP:   state_nxt = i_DMEM_stall ? state : S_IFID;
+    //         S_FINISH: state_nxt = state;
+    //         default : state_nxt = state;
+    //     endcase
+    //     if(i_DMEM_stall)    state_nxt = state;
+    // end
     always @(*) begin
-        case(state)
-            S_IFID:           state_nxt = ( i_IMEM_data[6:0] == 7'b1110011 ) ? S_FINISH : ( (i_IMEM_data[6:0] == 7'b1110011 && i_IMEM_data[25] == 1'b0) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP);
-            S_MULTI_CYCLE_OP: state_nxt = mul_done ? S_IFID : state;
-            S_ONE_CYCLE_OP:   state_nxt = i_DMEM_stall ? state : S_IFID;
-            S_FINISH: state_nxt = state;
-            default : state_nxt = state;
-        endcase
-        if(i_DMEM_stall)    state_nxt = state;
+        state_nxt = state;
+        if(!i_DMEM_stall) begin
+            if(i_IMEM_data[6:0] == 7'b1110011) state_nxt = S_FINISH;
+            else if (!(state == S_MULTI_CYCLE_OP && !mul_done))
+                state_nxt = (i_IMEM_data[6:0] == 7'b0110011 && i_IMEM_data[25] == 1'b1) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP;
+        end
     end
     
 
@@ -216,26 +224,26 @@ module CHIP #(                                                                  
     // ALU control
     always @(*) begin
         case(ALUOp)
-            2'b00: ALUctrl = INST_ADD;
-            2'b01: case(i_IMEM_data[14:12])
-                3'b000: ALUctrl = INST_SUB;
-                3'b101: ALUctrl = INST_SLT_N;
-                3'b100: ALUctrl = INST_SLT;
-                3'b001: ALUctrl = INST_SUB_N;
+            2'b00: ALUctrl = INST_ADD;    // load, store
+            2'b01: case(i_IMEM_data[14:12])     // branch
+                3'b000: ALUctrl = INST_SUB;     // beq
+                3'b101: ALUctrl = INST_SLT_N;   // bge
+                3'b100: ALUctrl = INST_SLT;     // blt
+                3'b001: ALUctrl = INST_SUB_N;   // bne
                 default: ALUctrl = INST_ADD;
             endcase
-            2'b10: case(i_IMEM_data[6:0])
-                7'b0110011: case(i_IMEM_data[14:12])
-                    3'b000: ALUctrl = i_IMEM_data[30] ? INST_SUB : (i_IMEM_data[25] ? INST_MUL : INST_ADD) ;
-                    3'b111: ALUctrl = INST_AND;
-                    3'b111: ALUctrl = INST_XOR;
+            2'b10: case(i_IMEM_data[6:0])   // I type, R type
+                7'b0110011: case(i_IMEM_data[14:12])    // R type
+                    3'b000: ALUctrl = i_IMEM_data[30] ? INST_SUB : (i_IMEM_data[25] ? INST_MUL : INST_ADD) ;    // sub, mul, add
+                    3'b111: ALUctrl = INST_AND; // and
+                    3'b100: ALUctrl = INST_XOR; // xor
                     default: ALUctrl = INST_ADD;
                 endcase
-                7'b0010011: case(i_IMEM_data[14:12])
-                    3'b000: ALUctrl = INST_ADD;
-                    3'b001: ALUctrl = INST_SLL;
-                    3'b010: ALUctrl = INST_SLT;
-                    3'b101: ALUctrl = INST_SRA;
+                7'b0010011: case(i_IMEM_data[14:12])    // I type
+                    3'b000: ALUctrl = INST_ADD; // addi
+                    3'b001: ALUctrl = INST_SLL; // slli
+                    3'b010: ALUctrl = INST_SLT; // slti
+                    3'b101: ALUctrl = INST_SRA; // srai
                     default: ALUctrl = INST_ADD;
                 endcase
                 7'b0010111: ALUctrl = INST_ADD; // auipc, TBD
@@ -303,7 +311,7 @@ module CHIP #(                                                                  
                 ALU_shreg = {32'd0, shreg_tmp};
             end
             INST_SRA: begin
-                shreg_tmp = i_A >> i_B;
+                shreg_tmp = i_A >> i_B;  //! signed or unsigned?
                 ALU_shreg = {32'd0, shreg_tmp};
             end
             INST_MUL: begin
@@ -337,7 +345,7 @@ module CHIP #(                                                                  
         if (!i_rst_n) begin
             PC <= 32'h00010000; // Do not modify this value!!!
             mul_valid <= 1'b0;
-            state <= S_IFID;
+            state <= S_IDLE;
         end
         else begin
             PC <= next_PC;
@@ -369,9 +377,9 @@ module Reg_file(i_clk, i_rst_n, wen, rs1, rs2, rd, wdata, rdata1, rdata2);
     assign rdata2 = mem[rs2];
 
     always @(*) begin
-        $display("wdata = %b", wdata);
-        $display("rd = %b", rd);
-        $display("wen = %b", wen);
+        // $display("wdata = %b", wdata);
+        // $display("rd = %b", rd);
+        // $display("wen = %b", wen);
         // $display("PCnow = %h", PC);
         for (i=0; i<word_depth; i=i+1)
             mem_nxt[i] = (wen && (rd == i)) ? wdata : mem[i];
@@ -394,9 +402,9 @@ module Reg_file(i_clk, i_rst_n, wen, rs1, rs2, rd, wdata, rdata1, rdata2);
                 mem[i] <= mem_nxt[i];
             // $display("PC = %h", PC);
             // $display("instruction = %h", i_IMEM_data);
-            for (i=1; i<15; i=i+1)
-                $display("mem[%d] = %h", i, mem[i]);
-            $display("\n");
+            // for (i=1; i<15; i=i+1)
+            //     $display("mem[%d] = %h", i, mem[i]);
+            // $display("\n");
         end       
     end
 endmodule
