@@ -99,9 +99,9 @@ module CHIP #(                                                                  
     assign o_DMEM_wdata = reg_rdata2;
     assign o_DMEM_addr = (ALUctrl == INST_MUL) ? ALU_result_multi : ALU_result_one;
     assign i_B = (ALUSrc) ? ImmGen[BIT_W-1:0] : reg_rdata2;
-    assign i_A = (i_IMEM_data[6:0] === 7'b0010111) ? PC : reg_rdata1;
+    assign i_A = (instruction[6:0] === 7'b0010111) ? PC : reg_rdata1;
     assign o_finish = (state == S_FINISH);
-    assign o_IMEM_addr = PC;
+    assign o_IMEM_addr = next_PC;
     assign o_IMEM_cen = (state != S_FINISH);
     assign o_DMEM_cen = (MemWrite | MemRead);
     assign o_DMEM_wen = MemWrite;
@@ -117,9 +117,9 @@ module CHIP #(                                                                  
         .i_clk  (i_clk),             
         .i_rst_n(i_rst_n),         
         .wen    (RegWrite),
-        .rs1    (i_IMEM_data[19:15]),                
-        .rs2    (i_IMEM_data[24:20]),                
-        .rd     (i_IMEM_data[11:7]),                 
+        .rs1    (instruction[19:15]),                
+        .rs2    (instruction[24:20]),                
+        .rd     (instruction[11:7]),                 
         .wdata  (reg_wdata),             
         .rdata1 (reg_rdata1),           
         .rdata2 (reg_rdata2)
@@ -142,25 +142,29 @@ module CHIP #(                                                                  
     
     // Todo: any combinational/sequential circuit
     always @(*) begin
-        if(i_DMEM_stall || (state_nxt == S_MULTI_CYCLE_OP && !mul_done) || (state == S_MULTI_CYCLE_OP && !mul_done))
-            next_PC = PC;
-        else if(i_IMEM_data[6:0] === 7'b1100111)    // jalr
+        // ! need adjustment
+        if(instruction[6:0] === 7'b1100111) begin  // jalr
             next_PC = ALU_result_one;
+        end
         else
             next_PC = (Branch === 1)? PC+(ImmGen<<1) : PC+4;
-        // $display("PC: %h.", PC);
-        // $display("Instruction: %h.", i_IMEM_data);
         newPC_nxt = (next_PC != PC);
+    end
+
+    always @(*) begin
+        if(i_DMEM_stall || (state == S_MULTI_CYCLE_OP && !mul_done))
+            instruction_nxt = instruction;
+        else
+            instruction_nxt = i_IMEM_data;
     end
 
     // reg_wdata
     always @(*) begin
-        if(i_IMEM_data[6:0] == 7'b1101111 || i_IMEM_data[6:0] == 7'b1100111) begin
+        if(instruction[6:0] == 7'b1101111 || instruction[6:0] == 7'b1100111) begin  // jal, jalr
             reg_wdata = PC+4;
             // $display("reg_wdata = PC+4");
             // $display("PC = %h", PC);
         end
-            
         else begin
             if(MemtoReg)    reg_wdata = i_DMEM_rdata;
             else begin
@@ -172,22 +176,12 @@ module CHIP #(                                                                  
         end
     end
 
-    // FSM
-    // always @(*) begin
-    //     case(state)
-    //         S_IFID:           state_nxt = ( i_IMEM_data[6:0] == 7'b1110011 ) ? S_FINISH : ( (i_IMEM_data[6:0] == 7'b0110011 && i_IMEM_data[25] == 1'b1) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP);
-    //         S_MULTI_CYCLE_OP: state_nxt = mul_done ? S_IFID : state;
-    //         S_ONE_CYCLE_OP:   state_nxt = i_DMEM_stall ? state : S_IFID;
-    //         S_FINISH: state_nxt = state;
-    //         default : state_nxt = state;
-    //     endcase
-    //     if(i_DMEM_stall)    state_nxt = state;
-    // end
+    // to determine state_nxt, need to use instruction_nxt/ i.e. i_IMEM_data
     always @(*) begin
         state_nxt = state;
         if(!i_DMEM_stall) begin
             if(i_IMEM_data[6:0] == 7'b1110011) state_nxt = S_FINISH;
-            else if (!(state == S_MULTI_CYCLE_OP && !mul_done) || newPC)
+            else if (!(state == S_MULTI_CYCLE_OP && !mul_done))
                 state_nxt = (i_IMEM_data[6:0] == 7'b0110011 && i_IMEM_data[25] == 1'b1) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP;
         end
     end
@@ -195,28 +189,28 @@ module CHIP #(                                                                  
 
     // ImmGen
     always @(*) begin
-        case(i_IMEM_data[6:0])
+        case(instruction[6:0])
             7'b0110011: ImmGen = 64'b0;     // R type
-            7'b0010011, 7'b1100111, 7'b0000011, 7'b1110011: ImmGen = {{52{i_IMEM_data[31]}}, i_IMEM_data[31:20]};      // I type
-            7'b0100011: ImmGen = {{52{i_IMEM_data[31]}}, i_IMEM_data[31:25], i_IMEM_data[11:7]};       // S type
-            7'b1100011: ImmGen = {{52{i_IMEM_data[31]}}, i_IMEM_data[31], i_IMEM_data[7], i_IMEM_data[30:25], i_IMEM_data[11:8]};      // B type
-            7'b0010111: ImmGen = {{32{i_IMEM_data[31]}}, i_IMEM_data[31:12], {12'b0}};     // U type
-            7'b1101111: ImmGen = {{44{i_IMEM_data[31]}}, i_IMEM_data[31], i_IMEM_data[19:12], i_IMEM_data[20], i_IMEM_data[30:21]};    // J type
+            7'b0010011, 7'b1100111, 7'b0000011, 7'b1110011: ImmGen = {{52{instruction[31]}}, instruction[31:20]};      // I type
+            7'b0100011: ImmGen = {{52{instruction[31]}}, instruction[31:25], instruction[11:7]};       // S type
+            7'b1100011: ImmGen = {{52{instruction[31]}}, instruction[31], instruction[7], instruction[30:25], instruction[11:8]};      // B type
+            7'b0010111: ImmGen = {{32{instruction[31]}}, instruction[31:12], {12'b0}};     // U type
+            7'b1101111: ImmGen = {{44{instruction[31]}}, instruction[31], instruction[19:12], instruction[20], instruction[30:21]};    // J type
             default: ImmGen = 64'b0;
         endcase
     end
 
     // Control Signals
     always @(*) begin
-        Branch = (i_IMEM_data[6] === 1 && (ALU_zero || i_IMEM_data[2] === 1))? 1:0;
-        MemRead = (i_IMEM_data[6:4] === 3'b0)? 1:0;
-        MemtoReg = (i_IMEM_data[6:4] === 3'b0)? 1:0;
-        MemWrite = (i_IMEM_data[6:4] === 3'b010)? 1:0;
-        ALUSrc = (i_IMEM_data[6:5] === 2'b00 || i_IMEM_data[6:4] === 3'b010 || i_IMEM_data[6:0] === 7'b1100111)? 1:0;
-        RegWrite = (i_IMEM_data[6:0] === 7'b1101111 || i_IMEM_data[6:0] === 7'b1100111 || i_IMEM_data[6:0] === 7'b0010111 || i_IMEM_data[6:0] === 7'b0110011 || i_IMEM_data[6:0] === 7'b0010011 || i_IMEM_data[6:0] === 7'b0000011 || i_IMEM_data[6:0] === 7'b0100011 )? 1:0;
-        if(i_IMEM_data[6] === 0 && i_IMEM_data[4:2] === 3'b0)  
+        Branch = (instruction[6] === 1 && (ALU_zero || instruction[2] === 1))? 1:0;
+        MemRead = (instruction[6:4] === 3'b0)? 1:0;
+        MemtoReg = (instruction[6:4] === 3'b0)? 1:0;
+        MemWrite = (instruction[6:4] === 3'b010)? 1:0;
+        ALUSrc = (instruction[6:5] === 2'b00 || instruction[6:4] === 3'b010 || instruction[6:0] === 7'b1100111)? 1:0;
+        RegWrite = (instruction[6:0] === 7'b1101111 || instruction[6:0] === 7'b1100111 || instruction[6:0] === 7'b0010111 || instruction[6:0] === 7'b0110011 || instruction[6:0] === 7'b0010011 || instruction[6:0] === 7'b0000011 || instruction[6:0] === 7'b0100011 )? 1:0;
+        if(instruction[6] === 0 && instruction[4:2] === 3'b0)  
             ALUOp = 2'b00;
-        else if(i_IMEM_data[6:2] === 5'b11000)
+        else if(instruction[6:2] === 5'b11000)
             ALUOp = 2'b01;
         else
             ALUOp = 2'b10;
@@ -227,21 +221,21 @@ module CHIP #(                                                                  
     always @(*) begin
         case(ALUOp)
             2'b00: ALUctrl = INST_ADD;    // load, store
-            2'b01: case(i_IMEM_data[14:12])     // branch
+            2'b01: case(instruction[14:12])     // branch
                 3'b000: ALUctrl = INST_SUB;     // beq
                 3'b101: ALUctrl = INST_SLT_N;   // bge
                 3'b100: ALUctrl = INST_SLT;     // blt
                 3'b001: ALUctrl = INST_SUB_N;   // bne
                 default: ALUctrl = INST_ADD;
             endcase
-            2'b10: case(i_IMEM_data[6:0])   // I type, R type
-                7'b0110011: case(i_IMEM_data[14:12])    // R type
-                    3'b000: ALUctrl = i_IMEM_data[30] ? INST_SUB : (i_IMEM_data[25] ? INST_MUL : INST_ADD) ;    // sub, mul, add
+            2'b10: case(instruction[6:0])   // I type, R type
+                7'b0110011: case(instruction[14:12])    // R type
+                    3'b000: ALUctrl = instruction[30] ? INST_SUB : (instruction[25] ? INST_MUL : INST_ADD) ;    // sub, mul, add
                     3'b111: ALUctrl = INST_AND; // and
                     3'b100: ALUctrl = INST_XOR; // xor
                     default: ALUctrl = INST_ADD;
                 endcase
-                7'b0010011: case(i_IMEM_data[14:12])    // I type
+                7'b0010011: case(instruction[14:12])    // I type
                     3'b000: ALUctrl = INST_ADD; // addi
                     3'b001: ALUctrl = INST_SLL; // slli
                     3'b010: ALUctrl = INST_SLT; // slti
@@ -327,17 +321,6 @@ module CHIP #(                                                                  
                 mul_valid_nxt = 1'b0;
             end
         endcase
-        
-        // $display("i_IMEM_data[6:0] = %b", i_IMEM_data[6:0]);
-        // $display("MemRead = %b", MemRead);
-        // $display("PC = %b", PC);
-        // $display("reg_rdata1 = %b", reg_rdata1);
-        // $display("i_A = %b", i_A);
-        // $display("i_B = %b", i_B);
-        // $display("ImmGen = %b", ImmGen);
-        // $display("ALU_result_one = %b", ALU_result_one);
-        // $display("RegWrite = %b\n", RegWrite);
-        // $display("ALUSrc = %b\n", ALUSrc);
     end
 
     // Imm Gen
@@ -356,7 +339,7 @@ module CHIP #(                                                                  
             mul_valid <= mul_valid_nxt;
             state <= state_nxt;
             newPC <= newPC_nxt;
-            instruction <= instruction_nxt;
+            instruction <= i_IMEM_data;
         end
     end
 endmodule
@@ -383,10 +366,6 @@ module Reg_file(i_clk, i_rst_n, wen, rs1, rs2, rd, wdata, rdata1, rdata2);
     assign rdata2 = mem[rs2];
 
     always @(*) begin
-        // $display("wdata = %b", wdata);
-        // $display("rd = %b", rd);
-        // $display("wen = %b", wen);
-        // $display("PCnow = %h", PC);
         for (i=0; i<word_depth; i=i+1)
             mem_nxt[i] = (wen && (rd == i)) ? wdata : mem[i];
     end
@@ -406,11 +385,6 @@ module Reg_file(i_clk, i_rst_n, wen, rs1, rs2, rd, wdata, rdata1, rdata2);
             mem[0] <= 0;
             for (i=1; i<word_depth; i=i+1)
                 mem[i] <= mem_nxt[i];
-            // $display("PC = %h", PC);
-            // $display("instruction = %h", i_IMEM_data);
-            // for (i=1; i<15; i=i+1)
-            //     $display("mem[%d] = %h", i, mem[i]);
-            // $display("\n");
         end       
     end
 endmodule
