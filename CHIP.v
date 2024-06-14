@@ -82,7 +82,8 @@ module CHIP #(                                                                  
         reg  [BIT_W-1: 0]shreg_tmp;
         reg  [2*BIT_W-1: 0] ALU_shreg;
         reg [BIT_W-1:0] reg_wdata;
-        reg [BIT_W-1:0] instruction;
+        reg [BIT_W-1:0] instruction, instruction_nxt;
+        reg newPC, newPC_nxt;
         // load input
         // reg cache_finish, cache_finish_nxt;
         // reg [BIT_W-1:0] IMEM_data, IMEM_data_nxt;
@@ -143,12 +144,13 @@ module CHIP #(                                                                  
     always @(*) begin
         if(i_DMEM_stall || (state_nxt == S_MULTI_CYCLE_OP && !mul_done) || (state == S_MULTI_CYCLE_OP && !mul_done))
             next_PC = PC;
-        else if(i_IMEM_data[6:0] === 7'b1100111)
+        else if(i_IMEM_data[6:0] === 7'b1100111)    // jalr
             next_PC = ALU_result_one;
         else
             next_PC = (Branch === 1)? PC+(ImmGen<<1) : PC+4;
         // $display("PC: %h.", PC);
         // $display("Instruction: %h.", i_IMEM_data);
+        newPC_nxt = (next_PC != PC);
     end
 
     // reg_wdata
@@ -185,7 +187,7 @@ module CHIP #(                                                                  
         state_nxt = state;
         if(!i_DMEM_stall) begin
             if(i_IMEM_data[6:0] == 7'b1110011) state_nxt = S_FINISH;
-            else if (!(state == S_MULTI_CYCLE_OP && !mul_done))
+            else if (!(state == S_MULTI_CYCLE_OP && !mul_done) || newPC)
                 state_nxt = (i_IMEM_data[6:0] == 7'b0110011 && i_IMEM_data[25] == 1'b1) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP;
         end
     end
@@ -346,11 +348,15 @@ module CHIP #(                                                                  
             PC <= 32'h00010000; // Do not modify this value!!!
             mul_valid <= 1'b0;
             state <= S_IDLE;
+            newPC <= 1'b1;
+            instruction <= 64'b0;
         end
         else begin
             PC <= next_PC;
             mul_valid <= mul_valid_nxt;
             state <= state_nxt;
+            newPC <= newPC_nxt;
+            instruction <= instruction_nxt;
         end
     end
 endmodule
