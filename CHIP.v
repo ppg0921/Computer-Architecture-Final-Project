@@ -128,7 +128,7 @@ module CHIP #(                                                                  
     MULDIV_unit ALU0(
         .i_clk  (i_clk),             
         .i_rst_n(i_rst_n), 
-        .i_valid(mul_valid_nxt),
+        .i_valid(mul_valid_nxt && newPC),
         .i_A    (reg_rdata1),
         .i_B    ((ALUSrc) ? ImmGen[31:0] : reg_rdata2), 
         .o_data (ALU_result_multi), 
@@ -142,8 +142,12 @@ module CHIP #(                                                                  
     
     // Todo: any combinational/sequential circuit
     always @(*) begin
-        // ! need adjustment
-        if(instruction[6:0] === 7'b1100111) begin  // jalr
+        // ! need adjustment, in the beginning i_DMEM_stall will be high, and thus state will not update
+        if(instruction == 64'b0)
+            next_PC = 32'h00010000;
+        else if (i_DMEM_stall || (state == S_MULTI_CYCLE_OP && !mul_done))
+            next_PC = PC;
+        else if(instruction[6:0] === 7'b1100111) begin  // jalr
             next_PC = ALU_result_one;
         end
         else
@@ -152,10 +156,7 @@ module CHIP #(                                                                  
     end
 
     always @(*) begin
-        if(i_DMEM_stall || (state == S_MULTI_CYCLE_OP && !mul_done))
-            instruction_nxt = instruction;
-        else
-            instruction_nxt = i_IMEM_data;
+        instruction_nxt = i_IMEM_data;
     end
 
     // reg_wdata
@@ -176,17 +177,20 @@ module CHIP #(                                                                  
         end
     end
 
+    // FSM
     // to determine state_nxt, need to use instruction_nxt/ i.e. i_IMEM_data
     always @(*) begin
         state_nxt = state;
         if(!i_DMEM_stall) begin
-            if(i_IMEM_data[6:0] == 7'b1110011) state_nxt = S_FINISH;
+            if(instruction_nxt[6:0] == 7'b1110011) state_nxt = S_FINISH;
             else if (!(state == S_MULTI_CYCLE_OP && !mul_done))
-                state_nxt = (i_IMEM_data[6:0] == 7'b0110011 && i_IMEM_data[25] == 1'b1) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP;
+                state_nxt = (instruction_nxt[6:0] == 7'b0110011 && instruction_nxt[25] == 1'b1) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP;
         end
     end
     
-
+    // always @(*) begin
+    //     if(state_nxt === S_MULTI_CYCLE_OP && )
+    // end
     // ImmGen
     always @(*) begin
         case(instruction[6:0])
@@ -339,7 +343,7 @@ module CHIP #(                                                                  
             mul_valid <= mul_valid_nxt;
             state <= state_nxt;
             newPC <= newPC_nxt;
-            instruction <= i_IMEM_data;
+            instruction <= instruction_nxt;
         end
     end
 endmodule
