@@ -100,12 +100,13 @@ module CHIP #(                                                                  
     assign o_DMEM_addr = (ALUctrl == INST_MUL) ? ALU_result_multi : ALU_result_one;
     assign i_B = (ALUSrc) ? ImmGen[BIT_W-1:0] : reg_rdata2;
     assign i_A = (instruction[6:0] === 7'b0010111) ? PC : reg_rdata1;
-    assign o_finish = (state == S_FINISH);
+    assign o_finish = (state == S_FINISH && !i_DMEM_stall);
     assign o_IMEM_addr = next_PC;
     assign o_IMEM_cen = (state != S_FINISH);
     assign o_DMEM_cen = (MemWrite | MemRead);
     assign o_DMEM_wen = MemWrite;
     assign ALU_result_one = ALU_shreg;
+    assign o_cache_finish = (state === S_FINISH);
     
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -212,7 +213,7 @@ module CHIP #(                                                                  
     // Control Signals
     always @(*) begin
         Branch = (instruction[6] === 1 && (ALU_zero || instruction[2] === 1))? 1:0;
-        MemRead = (instruction[6:4] === 3'b0)? 1:0;
+        MemRead = (instruction[6:4] === 3'b0 && instruction !== 64'b0)? 1:0;
         MemtoReg = (instruction[6:4] === 3'b0)? 1:0;
         MemWrite = (instruction[6:4] === 3'b010)? 1:0;
         ALUSrc = (instruction[6:5] === 2'b00 || instruction[6:4] === 3'b010 || instruction[6:0] === 7'b1100111)? 1:0;
@@ -523,7 +524,7 @@ module Cache#(
         input  [ADDR_W-1: 0] i_offset
     );
 
-    assign o_cache_available = 0; // change this value to 1 if the cache is implemented
+    assign o_cache_available = 0; // ! change this value to 1 if the cache is implemented
 
     //------------------------------------------//
     //          default connection              //
@@ -579,17 +580,20 @@ module Cache#(
 // Continuous Assignment
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 
+
+    assign addr_idx = addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
+    assign addr_blk_ofs = addr[3:2];
+
     // assign addr_index = i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
     // assign o_proc_stall = i_mem_stall | (state == S_IDLE && i_proc_cen == 1) | (state != S_IDLE && state != S_FINISH);
     // assign o_cache_finish = (state == S_FINISH);
-    // assign o_mem_cen = ((state == S_WB) || (state == S_ALLO)) & o_cwen_cnt;
-    // assign o_mem_wen = (state == S_WB) & o_cwen_cnt;
+    // assign o_mem_cen = (((state == S_WB) || (state == S_ALLO)) & o_cwen_cnt) || i_proc_finish;
+    // assign o_mem_wen = ((state == S_WB) & o_cwen_cnt) || i_proc_finish;
     // assign o_proc_rdata = o_proc_data_reg;
-    // assign o_mem_addr = (i_proc_cen)? {cache_tag[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]], i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE], 4'b0} : 32'b0;
-    // assign o_mem_wdata = (i_proc_cen)? {cache_data[i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE]]} : 128'b0;
+    // assign o_mem_addr = (o_mem_cen)? {cache_tag[addr_idx], addr_idx, 4'b0} : 32'b0;
+    // assign o_mem_wdata = (o_mem_cen)? {cache_data[addr_idx]} : 128'b0;
     
-    assign addr_idx = addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
-    assign addr_blk_ofs = addr[3:2];
+    
 
     // Todo: BONUS
 
@@ -598,57 +602,42 @@ module Cache#(
         case(state)
             S_IDLE: begin
                 if(i_proc_cen) begin
-                    if(i_proc_wen)
-                        state_nxt = S_WRITE;
-                    else    // i_proc_wen = 0
-                        state_nxt = S_READ;
+                    if(i_proc_wen)  state_nxt = S_WRITE;
+                    else  state_nxt = S_READ;  // i_proc_wen = 0
                 end
-                else
-                    state_nxt = state;
+                else    state_nxt = state;
             end
             S_WRITE: begin
-                if(hit)
-                    state_nxt = S_FINISH;
+                if(hit)     state_nxt = S_FINISH;
                 else begin// hit = 0
                     if(!i_mem_stall) begin
                         // o_cwen_cnt_nxt = 1;
-                        if(dirty)
-                            state_nxt = S_WB;
-                        else    // dirty = 0
-                            state_nxt = S_ALLO;
+                        if(dirty)   state_nxt = S_WB;
+                        else    state_nxt = S_ALLO;     // dirty = 0
                     end
-                    else
-                        state_nxt = state;
+                    else    state_nxt = state;
                 end
             end
             S_WB: begin
-                if(!i_mem_stall)
-                    state_nxt = S_ALLO;
-                else
-                    state_nxt = state;
+                if(!i_mem_stall)    state_nxt = S_ALLO;
+                else    state_nxt = state;
             end
             S_ALLO: begin
                 if(!i_mem_stall) begin
-                    if(i_proc_wen)
-                        state_nxt = S_WRITE;
-                    else
-                        state_nxt = S_READ;
+                    if(i_proc_wen)  state_nxt = S_WRITE;
+                    else    state_nxt = S_READ;
                 end
-                else
-                    state_nxt = state;
+                else    state_nxt = state;
             end
             S_READ: begin
                 if(hit)
                     state_nxt = S_FINISH;
                 else if(!i_mem_stall) begin
                     // o_cwen_cnt_nxt = 1;
-                    if(dirty)
-                        state_nxt = S_WB;
-                    else    // dirty = 0
-                        state_nxt = S_ALLO;
+                    if(dirty)   state_nxt = S_WB;
+                    else    state_nxt = S_ALLO;    // dirty = 0 
                 end
-                else
-                    state_nxt = state;
+                else    state_nxt = state;
             end
             S_FINISH: state_nxt = S_IDLE;
             default : state_nxt = state;
