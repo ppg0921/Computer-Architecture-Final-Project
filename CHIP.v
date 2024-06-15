@@ -106,7 +106,7 @@ module CHIP #(                                                                  
     assign o_DMEM_cen = (MemWrite | MemRead);
     assign o_DMEM_wen = MemWrite;
     assign ALU_result_one = ALU_shreg;
-    assign o_proc_finish = (state === S_FINISH);
+    assign o_proc_finish = (instruction_nxt[6:0] == 7'b1110011);
     
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -143,7 +143,6 @@ module CHIP #(                                                                  
     
     // Todo: any combinational/sequential circuit
     always @(*) begin
-        // ! need adjustment, in the beginning i_DMEM_stall will be high, and thus state will not update
         if(instruction == 64'b0)
             next_PC = 32'h00010000;
         else if (i_DMEM_stall || (state == S_MULTI_CYCLE_OP && !mul_done))
@@ -158,6 +157,8 @@ module CHIP #(                                                                  
 
     always @(*) begin
         instruction_nxt = i_IMEM_data;
+        if(instruction[6:0] === 7'b1110011)
+            instruction_nxt = instruction;
     end
 
     // reg_wdata
@@ -584,13 +585,13 @@ module Cache#(
     assign addr_idx = addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
     assign addr_blk_ofs = addr[3:2];
 
-    // assign addr_index = i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
+    assign addr_index = i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
     assign o_proc_stall = i_mem_stall | (state == S_IDLE && i_proc_cen == 1) | (state != S_IDLE && state != S_FINISH);
     assign o_cache_finish = (state == S_FINISH);
-    assign o_mem_cen = (((state == S_WB) || (state == S_ALLO)) & o_cwen_cnt) || i_proc_finish;
-    assign o_mem_wen = ((state == S_WB) & o_cwen_cnt) || i_proc_finish;
+    assign o_mem_cen = (((state == S_WB) || (state == S_ALLO)) & o_cwen_cnt);
+    assign o_mem_wen = ((state == S_WB) & o_cwen_cnt);
     assign o_proc_rdata = o_proc_data_reg;
-    assign o_mem_addr = (o_mem_cen)? {cache_tag[addr_idx], addr_idx, 4'b0} : 32'b0;
+    assign o_mem_addr = (o_mem_cen)? ((state == S_WB)? {cache_tag[addr_idx], addr_idx, i_offset[3:0]}:{addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE], addr_idx, i_offset[3:0]}) : 32'b0;
     assign o_mem_wdata = (o_mem_cen)? {cache_data[addr_idx]} : 128'b0;
     
     
