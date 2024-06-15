@@ -184,7 +184,7 @@ module CHIP #(                                                                  
     always @(*) begin
         state_nxt = state;
         if(!i_DMEM_stall) begin
-            if(instruction_nxt[6:0] == 7'b1110011) state_nxt = S_FINISH;
+            if(instruction_nxt[6:0] == 7'b1110011 && i_cache_finish) state_nxt = S_FINISH;
             else if (!(state == S_MULTI_CYCLE_OP && !mul_done))
                 state_nxt = (instruction_nxt[6:0] == 7'b0110011 && instruction_nxt[25] == 1'b1) ? S_MULTI_CYCLE_OP : S_ONE_CYCLE_OP;
         end
@@ -525,17 +525,17 @@ module Cache#(
         input  [ADDR_W-1: 0] i_offset
     );
 
-    assign o_cache_available = 0; // ! change this value to 1 if the cache is implemented
+    assign o_cache_available = 1; // ! change this value to 1 if the cache is implemented
 
-    //------------------------------------------//
-    //          default connection              //
-    assign o_mem_cen = i_proc_cen;              //
-    assign o_mem_wen = i_proc_wen;              //
-    assign o_mem_addr = i_proc_addr;            //
-    assign o_mem_wdata = i_proc_wdata;          //
-    assign o_proc_rdata = i_mem_rdata[0+:BIT_W];//
-    assign o_proc_stall = i_mem_stall;          //
-    //------------------------------------------//
+    // //------------------------------------------//
+    // //          default connection              //
+    // assign o_mem_cen = i_proc_cen;              //
+    // assign o_mem_wen = i_proc_wen;              //
+    // assign o_mem_addr = i_proc_addr;            //
+    // assign o_mem_wdata = i_proc_wdata;          //
+    // assign o_proc_rdata = i_mem_rdata[0+:BIT_W];//
+    // assign o_proc_stall = i_mem_stall;          //
+    // //------------------------------------------//
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Parameters
@@ -564,7 +564,7 @@ module Cache#(
     reg cache_valid[BLOCK_NUMBER-1:0];
     reg cache_dirty[BLOCK_NUMBER-1:0];
     reg [BIT_W-1:0] o_proc_data_reg, o_proc_data_nxt;
-    reg [ADDR_SIZE-1:0]    addr;
+    reg [ADDR_SIZE-1:0]    addr;    // relative address
 
     reg [CACHE_DATA_SIZE-1:0] cache_data_nxt;
     reg [TAG_SIZE-1:0] cache_tag_nxt;
@@ -575,6 +575,7 @@ module Cache#(
     // wires
     wire [INDEX_SIZE-1:0] addr_idx;
     wire [1:0] addr_blk_ofs;
+    wire [INDEX_SIZE-1:0] relative_addr_to_mem;
     wire hit, dirty;
 
     
@@ -586,15 +587,16 @@ module Cache#(
 
     assign addr_idx = (i_proc_finish)? block_cnt[INDEX_SIZE-1:0] : addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
     assign addr_blk_ofs = addr[3:2];
+    assign relative_addr_to_mem = (state == S_WB)? {cache_tag[addr_idx], addr_idx, 4'b0}:({addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE-INDEX_SIZE], 4'b0});
 
     // assign addr_index = i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
-    // assign o_proc_stall = i_mem_stall | (state == S_IDLE && i_proc_cen == 1) | (state != S_IDLE && state != S_FINISH);
-    // assign o_cache_finish = (state == S_FINISH);
-    // assign o_mem_cen = (((state == S_WB) || (state == S_ALLO)) & o_cwen_cnt);
-    // assign o_mem_wen = ((state == S_WB) & o_cwen_cnt);
-    // assign o_proc_rdata = o_proc_data_reg;
-    // assign o_mem_addr = (o_mem_cen || i_proc_finish)? ((state == S_WB)? {cache_tag[addr_idx], addr_idx, i_offset[3:0]}:{addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE], addr_idx, i_offset[3:0]}) : 32'b0;
-    // assign o_mem_wdata = (o_mem_cen || i_proc_finish)? {cache_data[addr_idx]} : 128'b0;
+    assign o_proc_stall = i_mem_stall | (state == S_IDLE && i_proc_cen == 1) | (state != S_IDLE && state != S_FINISH);
+    assign o_cache_finish = (state == S_FINISH);
+    assign o_mem_cen = (((state == S_WB) || (state == S_ALLO)) & o_cwen_cnt);
+    assign o_mem_wen = ((state == S_WB) & o_cwen_cnt);
+    assign o_proc_rdata = o_proc_data_reg;
+    assign o_mem_addr = (o_mem_cen || i_proc_finish)? (relative_addr_to_mem + i_offset) : 32'b0;
+    assign o_mem_wdata = (o_mem_cen || i_proc_finish)? {cache_data[addr_idx]} : 128'b0;
     
     
 
@@ -749,7 +751,7 @@ module Cache#(
             o_proc_data_reg <= o_proc_data_nxt;
             o_cwen_cnt <= o_cwen_cnt_nxt;
             if(state == S_IDLE && !i_proc_finish)begin
-                addr <= i_proc_addr;
+                addr <= i_proc_addr-i_offset;
                 cache_wen <= i_proc_wen;
             end
             cache_data[addr_idx] <= cache_data_nxt;
