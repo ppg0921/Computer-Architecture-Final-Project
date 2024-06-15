@@ -195,7 +195,12 @@ module CHIP #(                                                                  
     always @(*) begin
         case(instruction[6:0])
             7'b0110011: ImmGen = 64'b0;     // R type
-            7'b0010011, 7'b1100111, 7'b0000011, 7'b1110011: ImmGen = {{52{instruction[31]}}, instruction[31:20]};      // I type
+            7'b0010011, 7'b1100111, 7'b0000011, 7'b1110011: begin       // I type
+                if(instruction[14:12] == 3'b001 || instruction[14:12] == 3'b101)    // slli, srai
+                    ImmGen = {{58{instruction[25]}}, instruction[25:20]};
+                else
+                    ImmGen = {{52{instruction[31]}}, instruction[31:20]};      
+            end
             7'b0100011: ImmGen = {{52{instruction[31]}}, instruction[31:25], instruction[11:7]};       // S type
             7'b1100011: ImmGen = {{52{instruction[31]}}, instruction[31], instruction[7], instruction[30:25], instruction[11:8]};      // B type
             7'b0010111: ImmGen = {{32{instruction[31]}}, instruction[31:12], {12'b0}};     // U type
@@ -218,7 +223,6 @@ module CHIP #(                                                                  
             ALUOp = 2'b01;
         else
             ALUOp = 2'b10;
-        // $display("ALUOp: %b.", ALUOp);
     end
 
     // ALU control
@@ -311,8 +315,11 @@ module CHIP #(                                                                  
                 ALU_shreg = {32'd0, shreg_tmp};
             end
             INST_SRA: begin
-                shreg_tmp = i_A >> i_B;  //! signed or unsigned?
-                ALU_shreg = {32'd0, shreg_tmp};
+                shreg_tmp = i_A >>> i_B;  //! signed or unsigned? (signed)
+                if(i_A[BIT_W-1] == 1'b0)
+                    ALU_shreg = {32'b0, shreg_tmp};
+                else
+                    ALU_shreg = {{32{1'b1}}, shreg_tmp};
             end
             INST_MUL: begin
                 mul_valid_nxt = 1'b1;
