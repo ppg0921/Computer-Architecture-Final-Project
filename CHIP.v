@@ -100,13 +100,13 @@ module CHIP #(                                                                  
     assign o_DMEM_addr = (ALUctrl == INST_MUL) ? ALU_result_multi : ALU_result_one;
     assign i_B = (ALUSrc) ? ImmGen[BIT_W-1:0] : reg_rdata2;
     assign i_A = (instruction[6:0] === 7'b0010111) ? PC : reg_rdata1;
-    assign o_finish = (state == S_FINISH && !i_DMEM_stall);
+    assign o_finish = (state == S_FINISH);
     assign o_IMEM_addr = next_PC;
     assign o_IMEM_cen = (state != S_FINISH);
     assign o_DMEM_cen = (MemWrite | MemRead);
     assign o_DMEM_wen = MemWrite;
     assign ALU_result_one = ALU_shreg;
-    assign o_proc_finish = (instruction_nxt[6:0] == 7'b1110011);
+    assign o_proc_finish = (instruction[6:0] == 7'b1110011);
     
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -525,17 +525,17 @@ module Cache#(
         input  [ADDR_W-1: 0] i_offset
     );
 
-    assign o_cache_available = 1; // ! change this value to 1 if the cache is implemented
+    assign o_cache_available = 0; // ! change this value to 1 if the cache is implemented
 
-    // //------------------------------------------//
-    // //          default connection              //
-    // assign o_mem_cen = i_proc_cen;              //
-    // assign o_mem_wen = i_proc_wen;              //
-    // assign o_mem_addr = i_proc_addr;            //
-    // assign o_mem_wdata = i_proc_wdata;          //
-    // assign o_proc_rdata = i_mem_rdata[0+:BIT_W];//
-    // assign o_proc_stall = i_mem_stall;          //
-    // //------------------------------------------//
+    //------------------------------------------//
+    //          default connection              //
+    assign o_mem_cen = i_proc_cen;              //
+    assign o_mem_wen = i_proc_wen;              //
+    assign o_mem_addr = i_proc_addr;            //
+    assign o_mem_wdata = i_proc_wdata;          //
+    assign o_proc_rdata = i_mem_rdata[0+:BIT_W];//
+    assign o_proc_stall = i_mem_stall;          //
+    //------------------------------------------//
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 // Parameters
@@ -569,6 +569,8 @@ module Cache#(
     reg [CACHE_DATA_SIZE-1:0] cache_data_nxt;
     reg [TAG_SIZE-1:0] cache_tag_nxt;
     reg cache_valid_nxt, cache_dirty_nxt;
+    reg cache_wen;
+    reg [INDEX_SIZE:0] block_cnt, block_cnt_nxt;
 
     // wires
     wire [INDEX_SIZE-1:0] addr_idx;
@@ -582,17 +584,17 @@ module Cache#(
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-    assign addr_idx = addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
+    assign addr_idx = (i_proc_finish)? block_cnt[INDEX_SIZE-1:0] : addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
     assign addr_blk_ofs = addr[3:2];
 
-    assign addr_index = i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
-    assign o_proc_stall = i_mem_stall | (state == S_IDLE && i_proc_cen == 1) | (state != S_IDLE && state != S_FINISH);
-    assign o_cache_finish = (state == S_FINISH);
-    assign o_mem_cen = (((state == S_WB) || (state == S_ALLO)) & o_cwen_cnt);
-    assign o_mem_wen = ((state == S_WB) & o_cwen_cnt);
-    assign o_proc_rdata = o_proc_data_reg;
-    assign o_mem_addr = (o_mem_cen)? ((state == S_WB)? {cache_tag[addr_idx], addr_idx, i_offset[3:0]}:{addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE], addr_idx, i_offset[3:0]}) : 32'b0;
-    assign o_mem_wdata = (o_mem_cen)? {cache_data[addr_idx]} : 128'b0;
+    // assign addr_index = i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
+    // assign o_proc_stall = i_mem_stall | (state == S_IDLE && i_proc_cen == 1) | (state != S_IDLE && state != S_FINISH);
+    // assign o_cache_finish = (state == S_FINISH);
+    // assign o_mem_cen = (((state == S_WB) || (state == S_ALLO)) & o_cwen_cnt);
+    // assign o_mem_wen = ((state == S_WB) & o_cwen_cnt);
+    // assign o_proc_rdata = o_proc_data_reg;
+    // assign o_mem_addr = (o_mem_cen || i_proc_finish)? ((state == S_WB)? {cache_tag[addr_idx], addr_idx, i_offset[3:0]}:{addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE], addr_idx, i_offset[3:0]}) : 32'b0;
+    // assign o_mem_wdata = (o_mem_cen || i_proc_finish)? {cache_data[addr_idx]} : 128'b0;
     
     
 
@@ -606,6 +608,7 @@ module Cache#(
                     if(i_proc_wen)  state_nxt = S_WRITE;
                     else  state_nxt = S_READ;  // i_proc_wen = 0
                 end
+                else if (i_proc_finish) state_nxt = S_WB;
                 else    state_nxt = state;
             end
             S_WRITE: begin
@@ -620,12 +623,18 @@ module Cache#(
                 end
             end
             S_WB: begin
-                if(!i_mem_stall)    state_nxt = S_ALLO;
+                if(!i_mem_stall)    begin
+                    if(i_proc_finish)   begin
+                        if(block_cnt_nxt == BLOCK_NUMBER)   state_nxt = S_FINISH;
+                        else    state_nxt = S_WB;
+                    end
+                    else state_nxt = S_ALLO;
+                end
                 else    state_nxt = state;
             end
             S_ALLO: begin
                 if(!i_mem_stall) begin
-                    if(i_proc_wen)  state_nxt = S_WRITE;
+                    if(cache_wen)  state_nxt = S_WRITE;
                     else    state_nxt = S_READ;
                 end
                 else    state_nxt = state;
@@ -648,10 +657,25 @@ module Cache#(
     // make sure o_mem_cen and o_mem_wen only remain high for 1 cycle
     always @(*) begin
         case(state)
+            S_IDLE: o_cwen_cnt_nxt = (state_nxt == S_WB)? 1:0;
             S_WRITE, S_READ: o_cwen_cnt_nxt = (state_nxt == S_ALLO || state_nxt == S_WB)? 1 : 0;
-            S_WB: o_cwen_cnt_nxt = (state_nxt == S_ALLO)? 1 : 0;
+            S_WB: o_cwen_cnt_nxt = (state_nxt == S_ALLO || block_cnt_nxt != block_cnt)? 1 : 0;
             default: o_cwen_cnt_nxt = 0;
         endcase
+    end
+
+    // block write back counter
+    integer j;
+    always @(*) begin
+        if(!i_mem_stall && i_proc_finish) begin
+            block_cnt_nxt = BLOCK_NUMBER;
+            for(j=0; j<block_cnt; j=j+1) begin       // biggest j s.t. cache_valid[j] && cache_dirty[j]
+                if(cache_valid[j] && cache_dirty[j])
+                    block_cnt_nxt = j;
+            end
+        end
+        else
+            block_cnt_nxt = block_cnt;
     end
 
     assign hit = (cache_valid[addr_idx] == 1) & (cache_tag[addr_idx] == addr[ADDR_SIZE-1: ADDR_SIZE-TAG_SIZE]);
@@ -694,6 +718,7 @@ module Cache#(
                     cache_tag_nxt = addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE];
                     cache_data_nxt = i_mem_rdata;
                     cache_valid_nxt = 1;
+                    cache_dirty_nxt = 0;
                 end
             end
             default: o_proc_data_nxt = 32'b0;
@@ -716,17 +741,22 @@ module Cache#(
             // dirty <= 0;
             o_cwen_cnt <= 0;
             addr <= 0;
+            cache_wen <= 0;
+            block_cnt = BLOCK_NUMBER+1;
         end
         else begin
             state <= state_nxt;
             o_proc_data_reg <= o_proc_data_nxt;
             o_cwen_cnt <= o_cwen_cnt_nxt;
-            if(state == S_IDLE)
+            if(state == S_IDLE && !i_proc_finish)begin
                 addr <= i_proc_addr;
+                cache_wen <= i_proc_wen;
+            end
             cache_data[addr_idx] <= cache_data_nxt;
             cache_dirty[addr_idx] <= cache_dirty_nxt;
             cache_tag[addr_idx] <= cache_tag_nxt;
             cache_valid[addr_idx] <= cache_valid_nxt;
+            block_cnt <= block_cnt_nxt;
         end
     end
 
