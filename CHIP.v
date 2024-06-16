@@ -165,8 +165,6 @@ module CHIP #(                                                                  
     always @(*) begin
         if(instruction[6:0] == 7'b1101111 || instruction[6:0] == 7'b1100111) begin  // jal, jalr
             reg_wdata = PC+4;
-            // $display("reg_wdata = PC+4");
-            // $display("PC = %h", PC);
         end
         else begin
             if(MemtoReg)    reg_wdata = i_DMEM_rdata;
@@ -259,7 +257,6 @@ module CHIP #(                                                                  
             endcase
             default: ALUctrl = INST_ADD;
         endcase
-        // $display("ALUCtrl: %h.", ALUctrl);
     end
 
 
@@ -575,7 +572,7 @@ module Cache#(
     // wires
     wire [INDEX_SIZE-1:0] addr_idx;
     wire [1:0] addr_blk_ofs;
-    wire [INDEX_SIZE-1:0] relative_addr_to_mem;
+    wire [ADDR_SIZE-1:0] relative_addr_to_mem;
     wire hit, dirty;
 
     
@@ -587,7 +584,7 @@ module Cache#(
 
     assign addr_idx = (i_proc_finish)? block_cnt[INDEX_SIZE-1:0] : addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
     assign addr_blk_ofs = addr[3:2];
-    assign relative_addr_to_mem = (state == S_WB)? {cache_tag[addr_idx], addr_idx, 4'b0}:({addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE-INDEX_SIZE], 4'b0});
+    assign relative_addr_to_mem = (state == S_WB)? ({{cache_tag[addr_idx]}, addr_idx, 4'b0}):({addr[ADDR_SIZE-1:ADDR_SIZE-TAG_SIZE-INDEX_SIZE], 4'b0});
 
     // assign addr_index = i_proc_addr[ADDR_SIZE-TAG_SIZE-1: ADDR_SIZE-TAG_SIZE-INDEX_SIZE];
     assign o_proc_stall = i_mem_stall | (state == S_IDLE && i_proc_cen == 1) | (state != S_IDLE && state != S_FINISH);
@@ -682,32 +679,18 @@ module Cache#(
 
     assign hit = (cache_valid[addr_idx] == 1) & (cache_tag[addr_idx] == addr[ADDR_SIZE-1: ADDR_SIZE-TAG_SIZE]);
     assign dirty = (!hit) & cache_dirty[addr_idx];
-
-    // always @(*) begin
-    //     if (cache_valid[addr_idx] == 1) begin
-    //         if (cache_tag[addr_idx] == addr[ADDR_SIZE-1: ADDR_SIZE-TAG_SIZE])
-    //             hit = 1;
-    //         else
-    //             hit = 0;
-    //     end
-    //     else
-    //         hit = 0;
-    //     dirty = (!hit) & cache_dirty[addr_idx];
-    // end
-
     // operation in each state
     always @(*) begin
         cache_data_nxt = cache_data[addr_idx];
         cache_dirty_nxt = cache_dirty[addr_idx];
         cache_valid_nxt = cache_valid[addr_idx];
         cache_tag_nxt = cache_tag[addr_idx];
+        o_proc_data_nxt = 32'b0;
         case(state)
             S_READ: begin
                 if (hit) begin
                     o_proc_data_nxt = cache_data[addr_idx][(addr_blk_ofs+1)*BIT_W-1 -: BIT_W];
                 end
-                else
-                    o_proc_data_nxt = 32'b0;
             end
             S_WRITE: begin
                 if (hit) begin
@@ -744,7 +727,7 @@ module Cache#(
             o_cwen_cnt <= 0;
             addr <= 0;
             cache_wen <= 0;
-            block_cnt = BLOCK_NUMBER+1;
+            block_cnt <= BLOCK_NUMBER;
         end
         else begin
             state <= state_nxt;
