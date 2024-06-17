@@ -36,12 +36,12 @@ module CHIP #(                                                                  
     parameter S_FINISH             = 2'd3;
 
     // ALU instruction parameter
-    parameter INST_AND = 4'b0000; // and
-    parameter INST_OR  = 4'b0001; // or
-    parameter INST_ADD = 4'b0010; // add, lw, sw, 
-    parameter INST_SUB = 4'b0110; // sub, beq
-    parameter INST_SLT = 4'b0111; // 
-    parameter INST_SLL = 4'b1000; 
+    parameter INST_AND = 4'b0000; 
+    parameter INST_OR  = 4'b0001; 
+    parameter INST_ADD = 4'b0010; 
+    parameter INST_SUB = 4'b0110; 
+    parameter INST_SLT = 4'b0111;
+    parameter INST_SLL = 4'b1000;
 
     parameter INST_SRA = 4'b1001;
     parameter INST_XOR = 4'b1010;
@@ -73,7 +73,7 @@ module CHIP #(                                                                  
         wire [BIT_W-1:0] reg_rdata1, reg_rdata2;
         
         reg ALU_zero;
-        wire [BIT_W-1:0]ALU_result_one;
+        wire [BIT_W-1:0] ALU_result_one;
         wire [BIT_W-1:0] ALU_result_multi;
         reg mul_valid, mul_valid_nxt;
         wire mul_done;
@@ -142,6 +142,8 @@ module CHIP #(                                                                  
 // ------------------------------------------------------------------------------------------------------------------------------------------------------
     
     // Todo: any combinational/sequential circuit
+
+    // PC control
     always @(*) begin
         if(instruction == 64'b0)
             next_PC = 32'h00010000;
@@ -155,13 +157,14 @@ module CHIP #(                                                                  
         newPC_nxt = (next_PC != PC);
     end
 
+    // IF (instruction fetch)
     always @(*) begin
         instruction_nxt = i_IMEM_data;
         if(instruction[6:0] === 7'b1110011)
             instruction_nxt = instruction;
     end
 
-    // reg_wdata
+    // reg_wdata (write back of register file)
     always @(*) begin
         if(instruction[6:0] == 7'b1101111 || instruction[6:0] == 7'b1100111) begin  // jal, jalr
             reg_wdata = PC+4;
@@ -188,9 +191,6 @@ module CHIP #(                                                                  
         end
     end
     
-    // always @(*) begin
-    //     if(state_nxt === S_MULTI_CYCLE_OP && )
-    // end
     // ImmGen
     always @(*) begin
         case(instruction[6:0])
@@ -333,9 +333,8 @@ module CHIP #(                                                                  
         endcase
     end
 
-    // Imm Gen
 
-
+    // Sequential always block
     always @(posedge i_clk or negedge i_rst_n) begin
         if (!i_rst_n) begin
             PC <= 32'h00010000; // Do not modify this value!!!
@@ -412,24 +411,26 @@ module MULDIV_unit(i_clk, i_valid, i_rst_n, i_A, i_B, o_data, o_done);
     input                       i_valid;
     input                       i_rst_n; // reset
 
-    input  [DATA_W - 1 : 0]      i_A;     // input operand A
-    input  [DATA_W - 1 : 0]      i_B;     // input operand B
+    input  [DATA_W-1: 0]     i_A;     // input operand A
+    input  [DATA_W-1: 0]     i_B;     // input operand B
 
-    output [DATA_W - 1 : 0]   o_data;  // output value
+    output [DATA_W-1: 0]     o_data;  // output value
     output                      o_done;
 
     // Regs
-    reg  [ 2*DATA_W-1: 0] shreg, shreg_nxt;
+    reg [2*DATA_W-1: 0] shreg, shreg_nxt;
     
     reg [4:0] cnt, cnt_nxt;
     reg state, state_nxt;
-    reg  [   DATA_W-1: 0] operand_a, operand_a_nxt;
-    reg  [   DATA_W-1: 0] operand_b, operand_b_nxt;
+    reg [DATA_W-1: 0] operand_a, operand_a_nxt;
+    reg [DATA_W-1: 0] operand_b, operand_b_nxt;
     reg done;
 
-
+    // continuous assignment
     assign o_data = shreg[DATA_W-1:0];
     assign o_done = done;
+
+
     // Always Combination
 
     // load input
